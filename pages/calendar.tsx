@@ -73,7 +73,20 @@ export default function CalendarPage() {
   return (
     <div>
       {Controls}
-      <CalendarBoard initial={initial} />
+      <CalendarBoard initial={initial} onPickTime={(iso)=>{
+        const d = new Date(iso)
+        const pad = (n:number)=> String(n).padStart(2,'0')
+        const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+        setFilters(f=>({ ...f, at: local, onlyAvail: true }))
+      }} onCreate={async ({ start, end, title, category, description })=>{
+        const p = filters.projectId || ''
+        const res = await fetch('/api/events',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title, start, end, category, projectId: p || undefined }) })
+        const data = await res.json()
+        if (data.event?.id) {
+          await fetch('/api/events/'+data.event.id+'/shifts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start, end, description }) })
+        }
+        await refresh()
+      }} />
     </div>
   )
 }

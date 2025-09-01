@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const events = await prisma.event.findMany({
         where,
         orderBy: { start: 'asc' },
-        include: { project: true, shifts: { include: { requirements: true, signups: true } } }
+        include: { project: true, shifts: { include: { requirements: true, signups: { include: { volunteer: true } } } } }
       })
       return res.status(200).json({ events })
     }
@@ -32,4 +32,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'server_error' })
   }
 }
-

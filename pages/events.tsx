@@ -107,28 +107,33 @@ export default function EventsPage() {
           <div key={ev.id} style={{ padding:'8px 0', borderTop:'1px dashed #e5e7eb' }}>
             <strong>{ev.title}</strong>
             <div style={{ display:'grid', gap:8, marginTop:6 }}>
+              <AddShiftForm eventId={ev.id} onAdded={refresh} />
               {ev.shifts?.map(sh => (
                 <div key={sh.id} style={{ padding:8, border:'1px solid #eee', borderRadius:6 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                     <div>
                       <span style={{ fontWeight:600 }}>Shift</span>: {new Date(sh.start).toLocaleString()} → {new Date(sh.end).toLocaleString()}
                     </div>
+                    <div>
+                      <button onClick={async()=>{ const start = prompt('New start (YYYY-MM-DDTHH:mm)', sh.start.slice(0,16)); if(!start) return; const end = prompt('New end (YYYY-MM-DDTHH:mm)', sh.end.slice(0,16)); if(!end) return; await fetch('/api/shifts/'+sh.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start, end }) }); await refresh() }}>Edit</button>{' '}
+                      <button onClick={async()=>{ if(!confirm('Delete this shift?')) return; await fetch('/api/shifts/'+sh.id,{ method:'DELETE' }); await refresh() }}>Delete</button>
+                    </div>
                   </div>
-                  <div style={{ display:'flex', gap:12, marginTop:6, flexWrap:'wrap' }}>
-                    {sh.requirements?.map(r => (
-                      <span key={r.skill} style={{ padding:'2px 6px', border:'1px solid #ddd', borderRadius:12, fontSize:12 }}>
-                        {r.skill}: {sh.signups.filter(s=>s.role===r.skill).length}/{r.minCount}
-                      </span>
-                    ))}
-                  </div>
+                  <RequirementsEditor shiftId={sh.id} requirements={sh.requirements} countsBySkill={Object.fromEntries((sh.requirements||[]).map(r=>[r.skill, sh.signups.filter(s=>s.role===r.skill).length]))} onChanged={refresh} />
                   <div style={{ marginTop:6 }}>
                     <div style={{ fontSize:13, opacity:.8, marginBottom:4 }}>Assigned volunteers</div>
                     <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
                       {sh.signups.map(s => (
                         <span key={s.id} style={{ padding:'2px 6px', border:'1px solid #ddd', borderRadius:12, fontSize:12 }}>
-                          {s.volunteerId}{s.role?` (${s.role})`:''}
+                          {s.volunteer?.name || s.volunteerId}{s.role?` (${s.role})`:''}
                           {' '}<button onClick={async()=>{ if(!confirm('Remove assignment?')) return; await fetch('/api/signups/'+s.id,{method:'DELETE'}); await refresh() }}>
                             ×
+                          </button>
+                          {' '}<button title='Present' onClick={async()=>{ const start=new Date(sh.start).getTime(), end=new Date(sh.end).getTime(); const hours=Math.round(((end-start)/3600000)*100)/100; await fetch('/api/attendance',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ shiftId: sh.id, volunteerId: s.volunteerId, status:'present', hours }) }); alert('Marked present'); }}>
+                            ✓
+                          </button>
+                          {' '}<button title='No show' onClick={async()=>{ await fetch('/api/attendance',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ shiftId: sh.id, volunteerId: s.volunteerId, status:'no_show' }) }); alert('Marked no-show'); }}>
+                            !
                           </button>
                         </span>
                       ))}
@@ -188,7 +193,47 @@ function AssignForm({ volunteers, roles, onAssign }: { volunteers: {id:string; n
         <option value=''>Role (optional)</option>
         {roles.map(r => <option key={r} value={r}>{r}</option>)}
       </select>
-      <button disabled={!volunteerId} onClick={async()=>{ await onAssign(volunteerId, role || undefined); setVolunteerId(''); setRole('') }}>Add</button>
+      <button disabled={!volunteerId} onClick={async()=>{ try { await onAssign(volunteerId, role || undefined); } catch (e:any) { alert(e?.message || 'Failed to assign') } finally { setVolunteerId(''); setRole('') } }}>Add</button>
+    </div>
+  )
+}
+
+function RequirementsEditor({ shiftId, requirements, countsBySkill, onChanged }: { shiftId: string; requirements: {skill:string; minCount:number; id?:string}[]; countsBySkill: Record<string, number>; onChanged: ()=>void }) {
+  const [skill, setSkill] = useState('')
+  const [minCount, setMin] = useState(1)
+  return (
+    <div>
+      <div style={{ display:'flex', gap:12, marginTop:6, flexWrap:'wrap' }}>
+        {requirements?.map((r:any) => (
+          <span key={r.id || r.skill} style={{ padding:'2px 6px', border:'1px solid #ddd', borderRadius:12, fontSize:12 }}>
+            {r.skill}: {countsBySkill[r.skill] ?? 0}/{r.minCount}
+            {' '}<button title='Edit min' onClick={async()=>{ const v = prompt('Set minimum count', String(r.minCount)); if(!v) return; const n = Number(v); if(Number.isNaN(n)) return; await fetch('/api/requirements/'+r.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ minCount: n })}); onChanged() }}>✎</button>
+            {' '}<button title='Delete' onClick={async()=>{ if(!confirm('Delete requirement?')) return; await fetch('/api/requirements/'+r.id,{ method:'DELETE' }); onChanged() }}>×</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:8 }}>
+        <input placeholder='Skill (e.g., carpentry)' value={skill} onChange={e=>setSkill(e.target.value)} />
+        <input type='number' min={1} style={{ width:80 }} value={minCount} onChange={e=>setMin(Number(e.target.value))} />
+        <button disabled={!skill} onClick={async()=>{ await fetch('/api/shifts/'+shiftId+'/requirements',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ skill, minCount }) }); setSkill(''); setMin(1); onChanged() }}>Add requirement</button>
+      </div>
+    </div>
+  )
+}
+
+function AddShiftForm({ eventId, onAdded }: { eventId: string; onAdded: ()=>void }) {
+  const [open, setOpen] = useState(false)
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+  const [description, setDescription] = useState('')
+  if (!open) return <button onClick={()=>setOpen(true)}>Add shift</button>
+  return (
+    <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+      <label>Start <input type='datetime-local' value={start} onChange={e=>setStart(e.target.value)} /></label>
+      <label>End <input type='datetime-local' value={end} onChange={e=>setEnd(e.target.value)} /></label>
+      <input placeholder='Description' value={description} onChange={e=>setDescription(e.target.value)} />
+      <button disabled={!start || !end} onClick={async()=>{ await fetch('/api/events/'+eventId+'/shifts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start, end, description }) }); setOpen(false); setStart(''); setEnd(''); setDescription(''); onAdded() }}>Create</button>
+      <button onClick={()=>{ setOpen(false); setStart(''); setEnd(''); setDescription('') }}>Cancel</button>
     </div>
   )
 }

@@ -6,12 +6,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (typeof id !== 'string') return res.status(400).json({ error: 'invalid id' })
   try {
     if (req.method === 'PATCH') {
-      const { role, status } = req.body || {}
-      const signup = await prisma.signup.update({ where: { id }, data: { role, status } })
-      return res.status(200).json({ signup })
+      const { skill, minCount } = req.body || {}
+      const requirement = await prisma.requirement.update({ where: { id }, data: { skill, minCount } })
+      return res.status(200).json({ requirement })
     }
     if (req.method === 'DELETE') {
-      await prisma.signup.delete({ where: { id } })
+      await prisma.requirement.delete({ where: { id } })
       return res.status(204).end()
     }
     return res.status(405).end()
@@ -20,3 +20,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'server_error' })
   }
 }
+
