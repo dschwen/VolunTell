@@ -7,6 +7,7 @@ export default function SettingsPage() {
   const [newSkill, setNewSkill] = useState('')
   const [defaultHours, setDefaultHours] = useState<number>(6)
   const [trimByRequiredSkills, setTrimByRequiredSkills] = useState<boolean>(false)
+  const [allowUtcLegacy, setAllowUtcLegacy] = useState<boolean>(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => { refresh() }, [])
@@ -15,13 +16,14 @@ export default function SettingsPage() {
     setLoading(true)
     const [sRes, setRes] = await Promise.all([
       fetch('/api/skills'),
-      fetch('/api/settings?keys=defaultShiftHours,requireSkillsForAvailability')
+      fetch('/api/settings?keys=defaultShiftHours,requireSkillsForAvailability,allowUtcLegacyAvailability')
     ])
     const sData = await sRes.json(); const stData = await setRes.json()
     setSkills(sData.skills || [])
     const v = Number(stData.settings?.defaultShiftHours || '6')
     setDefaultHours(Number.isFinite(v) && v > 0 ? v : 6)
     setTrimByRequiredSkills((stData.settings?.requireSkillsForAvailability || 'false') === 'true')
+    setAllowUtcLegacy((stData.settings?.allowUtcLegacyAvailability || 'false') === 'true')
     setLoading(false)
   }
 
@@ -42,6 +44,10 @@ export default function SettingsPage() {
   }
   async function saveAvailabilityTrim() {
     await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ requireSkillsForAvailability: trimByRequiredSkills ? 'true' : 'false' }) })
+    alert('Saved')
+  }
+  async function saveUtcLegacy() {
+    await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ allowUtcLegacyAvailability: allowUtcLegacy ? 'true' : 'false' }) })
     alert('Saved')
   }
 
@@ -70,6 +76,17 @@ export default function SettingsPage() {
                 {s.name} <button onClick={()=>removeSkill(s.id)}>×</button>
               </span>
             ))}
+          </div>
+        </section>
+        <section>
+          <h3>Availability Compatibility</h3>
+          <label style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <input type='checkbox' checked={allowUtcLegacy} onChange={e=>setAllowUtcLegacy(e.target.checked)} />
+            Allow legacy UTC availability fallback
+          </label>
+          <div style={{ fontSize:12, opacity:.7, marginTop:4 }}>If early data was saved with UTC weekdays, enabling this treats those windows as valid when local checks fail.</div>
+          <div style={{ marginTop:8 }}>
+            <button onClick={saveUtcLegacy} disabled={loading}>Save</button>
           </div>
         </section>
         <section>

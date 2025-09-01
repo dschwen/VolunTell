@@ -11,8 +11,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ volunteer })
     }
     if (req.method === 'DELETE') {
-      const volunteer = await prisma.volunteer.update({ where: { id }, data: { isActive: false } })
-      return res.status(200).json({ volunteer })
+      if (req.query.hard === 'true') {
+        await prisma.$transaction([
+          prisma.attendance.deleteMany({ where: { volunteerId: id } }),
+          prisma.signup.deleteMany({ where: { volunteerId: id } }),
+          prisma.availability.deleteMany({ where: { volunteerId: id } }),
+          prisma.blackout.deleteMany({ where: { volunteerId: id } }),
+          prisma.task.deleteMany({ where: { volunteerId: id } }),
+        ])
+        await prisma.volunteer.delete({ where: { id } })
+        return res.status(200).json({ ok: true })
+      } else {
+        const volunteer = await prisma.volunteer.update({ where: { id }, data: { isActive: false } })
+        return res.status(200).json({ volunteer })
+      }
     }
     return res.status(405).end()
   } catch (e: any) {
@@ -20,4 +32,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'server_error' })
   }
 }
-

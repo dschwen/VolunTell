@@ -1,40 +1,77 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { prisma } from '../../../lib/prisma'
-import { availableOnWeekday, availableForRange } from '../../../lib/availability'
+import { availableOnWeekday, availableForRange, availabilityDebugForRange, availableForRangeUTC } from '../../../lib/availability'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method === 'GET') {
-      const { skill, active, availableAt, availableForShift, requireSkills } = req.query
+      const { skill, active, availableAt, availableForShift, requireSkills, debug } = req.query
       const where: any = {}
       if (typeof skill === 'string') where.skills = { has: skill }
       if (typeof active === 'string') where.isActive = active === 'true'
       // For availableForShift, we need availability + blackouts and conflict check
+      // When checking availability for a shift, default to active volunteers only
+      if (typeof availableForShift === 'string') where.isActive = true
       const volunteers = await prisma.volunteer.findMany({ where, include: { availability: true, blackouts: true, family: true } })
       if (typeof availableForShift === 'string') {
         const shift = await prisma.shift.findUnique({ where: { id: availableForShift }, include: { signups: { where: { status: 'confirmed' } }, requirements: true } })
         if (!shift) return res.status(404).json({ error: 'shift_not_found' })
         // Build set of volunteers with overlapping confirmed signups
-        const conflicts = await prisma.signup.findMany({ where: { status: 'confirmed', shift: { start: { lt: shift.end }, end: { gt: shift.start } } }, select: { volunteerId: true } })
+        const conflicts = await prisma.signup.findMany({
+          where: { status: 'confirmed', shift: { start: { lt: shift.end }, end: { gt: shift.start } } },
+          include: { shift: { select: { id: true, start: true, end: true, event: { select: { title: true } } } } }
+        })
         const conflictSet = new Set(conflicts.map(c => c.volunteerId))
+        const conflictByVolunteer = new Map<string, typeof conflicts[number]>()
+        for (const c of conflicts) if (!conflictByVolunteer.has(c.volunteerId)) conflictByVolunteer.set(c.volunteerId, c)
         const reqSkills = Array.from(new Set((shift.requirements || []).map(r => r.skill)))
         let mustMatchSkills = false
+        let allowUtcLegacy = false
         if (typeof requireSkills === 'string') {
           mustMatchSkills = requireSkills === 'true' && reqSkills.length > 0
         } else {
           // Fallback to global setting if not specified
-          const row = await prisma.appSetting.findUnique({ where: { key: 'requireSkillsForAvailability' } })
+          const [row, legacy] = await Promise.all([
+            prisma.appSetting.findUnique({ where: { key: 'requireSkillsForAvailability' } }),
+            prisma.appSetting.findUnique({ where: { key: 'allowUtcLegacyAvailability' } })
+          ])
           mustMatchSkills = (row?.value === 'true') && reqSkills.length > 0
+          allowUtcLegacy = (legacy?.value === 'true')
         }
         const filtered = volunteers.filter(v => {
           if (conflictSet.has(v.id)) return false
-          if (!availableForRange(shift.start, shift.end, v.availability, v.blackouts)) return false
+          let ok = availableForRange(shift.start, shift.end, v.availability, v.blackouts)
+          if (!ok && allowUtcLegacy) ok = availableForRangeUTC(shift.start, shift.end, v.availability, v.blackouts)
+          if (!ok) return false
           if (mustMatchSkills) {
             const skills = v.skills || []
             if (!skills.some((s: string) => reqSkills.includes(s))) return false
           }
           return true
         })
+        if (String(debug) === 'true') {
+          const excluded = volunteers
+            .filter(v => !filtered.some(f => f.id === v.id))
+            .map(v => {
+              const reasons: string[] = []
+              if (conflictSet.has(v.id)) reasons.push('double_booked')
+              const avail = availabilityDebugForRange(shift.start, shift.end, v.availability, v.blackouts)
+              if (!avail.ok) reasons.push(...avail.reasons)
+              if (mustMatchSkills) {
+                const skills = v.skills || []
+                if (!skills.some((s: string) => reqSkills.includes(s))) reasons.push('missing_required_skill')
+              }
+              const conflict = conflictByVolunteer.get(v.id)
+              const conflictInfo = conflict ? {
+                shiftId: conflict.shift.id,
+                start: conflict.shift.start,
+                end: conflict.shift.end,
+                eventTitle: conflict.shift.event?.title,
+              } : undefined
+              return { id: v.id, name: v.name, reasons, conflict: conflictInfo, availabilityContext: avail.context, availability: v.availability, blackouts: v.blackouts, skills: v.skills }
+            })
+          return res.status(200).json({ volunteers: filtered, debug: { excluded, requireSkillsApplied: mustMatchSkills, requiredSkills: reqSkills, allowUtcLegacy } })
+        }
         return res.status(200).json({ volunteers: filtered })
       }
       let filtered = volunteers

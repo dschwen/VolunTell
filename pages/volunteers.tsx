@@ -67,6 +67,15 @@ export default function VolunteersPage() {
     await fetch('/api/volunteers/' + v.id, { method: 'DELETE' })
     await refresh()
   }
+  async function reactivate(v: Volunteer) {
+    await fetch('/api/volunteers/' + v.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isActive: true }) })
+    await refresh()
+  }
+  async function hardDelete(v: Volunteer) {
+    if (!confirm(`Permanently delete ${v.name}? This removes all availability, blackouts, signups, and attendance.`)) return
+    await fetch('/api/volunteers/' + v.id + '?hard=true', { method: 'DELETE' })
+    await refresh()
+  }
 
   const filtered = useMemo(() => vols.filter(v => v.name.toLowerCase().includes(q.toLowerCase())), [vols, q])
 
@@ -93,9 +102,16 @@ export default function VolunteersPage() {
               <td>{v.phone}</td>
               <td>{(v.skills||[]).join(', ')}</td>
               <td>{v.isActive ? 'Active' : 'Inactive'}</td>
-              <td style={{ textAlign: 'right' }}>
-                <button onClick={() => openEdit(v)}>Edit</button>{' '}
-                <button onClick={() => remove(v)}>Deactivate</button>
+              <td style={{ textAlign: 'right', display:'flex', gap:6, justifyContent:'flex-end' }}>
+                <button onClick={() => openEdit(v)}>Edit</button>
+                {v.isActive ? (
+                  <>
+                    <button onClick={() => remove(v)}>Deactivate</button>
+                    <button onClick={() => hardDelete(v)}>Delete</button>
+                  </>
+                ) : (
+                  <button onClick={() => reactivate(v)}>Reactivate</button>
+                )}
               </td>
             </tr>
           ))}

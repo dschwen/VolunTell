@@ -73,10 +73,13 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
       try {
         const sres = await fetch('/api/skills')
         const sdata = await sres.json()
-        const global = (sdata.skills||[]).map((s:any)=>s.name)
         const reqs = (info.event.extendedProps.requirements||[]).map((r:any)=>r.skill)
-        const options = Array.from(new Set([ ...reqs, ...global ]))
-        setAssignModal({ open:true, shiftId, volunteerId, options, selected: [] })
+        const options = Array.from(new Set([ ...reqs ]))
+        // Limit to volunteer's skills if known
+        const allVols = [...(initial.volunteers||[]), ...availList]
+        const vol = allVols.find((v:any) => v.id === volunteerId)
+        const filtered = vol?.skills?.length ? options.filter((o:string)=> (vol.skills||[]).includes(o)) : options
+        setAssignModal({ open:true, shiftId, volunteerId, options: filtered, selected: [] })
       } catch {
         setAssignModal({ open:true, shiftId, volunteerId, options: [], selected: [] })
       }
@@ -239,14 +242,24 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
             <div style={{ marginTop:16 }}>
               <div style={{ fontWeight:600, marginBottom:6 }}>Available volunteers</div>
               <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-                <select value={assignForm.volunteerId} onChange={e=>setAssignForm(f=>({...f, volunteerId: e.target.value}))}>
+                <select value={assignForm.volunteerId} onChange={e=>setAssignForm(f=>({ ...f, volunteerId: e.target.value, roleList: f.roleList.filter(r => {
+                  const v = availList.find(x=>x.id===e.target.value)
+                  return !v?.skills?.length || v.skills.includes(r)
+                }) }))}>
                   <option value=''>Select…</option>
                   {availList.filter(v => !(drawer.details.signups||[]).some((s:any)=>s.volunteerId===v.id)).map(v => (
                     <option key={v.id} value={v.id}>{v.name}</option>
                   ))}
                 </select>
                 <div style={{ minWidth:220 }}>
-                  <TagMultiSelect value={assignForm.roleList} options={Array.from(new Set([...(drawer.details.requirements||[]).map((r:any)=>r.skill), ...skillOptions]))} onChange={list=>setAssignForm(f=>({...f, roleList: list.slice(0,1)}))} placeholder='Role (optional)' onRequestCreate={async (label) => { const res = await fetch('/api/skills', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: label }) }); if (res.ok) { const data = await res.json(); return data.skill.name } }} />
+                  {(() => {
+                    const base = Array.from(new Set([...(drawer.details.requirements||[]).map((r:any)=>r.skill)]))
+                    const vol = assignForm.volunteerId ? availList.find(v=>v.id===assignForm.volunteerId) : null
+                    const options = vol?.skills?.length ? base.filter(s => (vol.skills||[]).includes(s)) : base
+                    return (
+                      <TagMultiSelect value={assignForm.roleList} options={options} onChange={list=>setAssignForm(f=>({...f, roleList: list.slice(0,1)}))} placeholder='Role (optional)' onRequestCreate={async (label) => { const res = await fetch('/api/skills', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: label }) }); if (res.ok) { const data = await res.json(); return data.skill.name } }} />
+                    )
+                  })()}
                 </div>
                 <button disabled={!assignForm.volunteerId} onClick={async()=>{ if(!drawer.shiftId) return; const role = assignForm.roleList[0]; await fetch('/api/shifts/'+drawer.shiftId+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId: assignForm.volunteerId, role }) }); const ref=await fetch('/api/shifts/'+drawer.shiftId); const parsed=await ref.json(); setDrawer(d=>({ ...d!, details: parsed.shift })); setAssignForm({ volunteerId:'', roleList: [] }) }}>Assign</button>
               </div>

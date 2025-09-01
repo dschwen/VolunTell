@@ -1,7 +1,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { prisma } from '../../../../lib/prisma'
-import { availableForRange } from '../../../../lib/availability'
+import { availableForRange, availableForRangeUTC } from '../../../../lib/availability'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end()
@@ -16,9 +16,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!force) {
       const volunteer = await prisma.volunteer.findUnique({ where: { id: volunteerId }, include: { availability: true, blackouts: true } })
       if (!volunteer) return res.status(404).json({ error: 'volunteer_not_found' })
-      if (!availableForRange(shift.start, shift.end, volunteer.availability, volunteer.blackouts)) {
-        return res.status(422).json({ error: 'not_available' })
+      let ok = availableForRange(shift.start, shift.end, volunteer.availability, volunteer.blackouts)
+      if (!ok) {
+        const legacy = await prisma.appSetting.findUnique({ where: { key: 'allowUtcLegacyAvailability' } })
+        if (legacy?.value === 'true') ok = availableForRangeUTC(shift.start, shift.end, volunteer.availability, volunteer.blackouts)
       }
+      if (!ok) return res.status(422).json({ error: 'not_available' })
     }
     const conflict = await prisma.signup.findFirst({
       where: {
