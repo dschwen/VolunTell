@@ -1,0 +1,6 @@
+
+html, body, #__next { height: 100%; margin: 0; font-family: system-ui, Arial, sans-serif; }
+.container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+.sidebar { border: 1px solid #ddd; padding: 8px; border-radius: 8px; }
+.vol-chip { padding: 6px 8px; margin-bottom: 6px; border-radius: 8px; border: 1px solid #ccc; cursor: grab; background: #f7f7f7; }
+.fc { --fc-border-color: #e5e7eb; }

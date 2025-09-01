@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Family {
+  id        String      @id @default(cuid())
+  name      String
+  colorTag  String?
+  notes     String?
+  volunteers Volunteer[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model Volunteer {
+  id           String        @id @default(cuid())
+  family       Family?       @relation(fields: [familyId], references: [id])
+  familyId     String?
+  name         String
+  email        String?       @unique
+  phone        String?
+  skills       String[]
+  notes        String?
+  isActive     Boolean       @default(true)
+  availability Availability[]
+  signups      Signup[]
+  attendance   Attendance[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Availability {
+  id           String     @id @default(cuid())
+  volunteer    Volunteer  @relation(fields: [volunteerId], references: [id])
+  volunteerId  String
+  weekday      Int        // 0=Sun … 6=Sat
+  startTime    String     // '08:00'
+  endTime      String     // '15:30'
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  title     String
+  location  String?
+  start     DateTime
+  end       DateTime
+  notes     String?
+  shifts    Shift[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Shift {
+  id          String        @id @default(cuid())
+  event       Event         @relation(fields: [eventId], references: [id])
+  eventId     String
+  start       DateTime
+  end         DateTime
+  description String?
+  requirements Requirement[]
+  signups     Signup[]
+  attendance  Attendance[]
+}
+
+model Requirement {
+  id       String  @id @default(cuid())
+  shift    Shift   @relation(fields: [shiftId], references: [id])
+  shiftId  String
+  skill    String
+  minCount Int
+}
+
+model Signup {
+  id          String     @id @default(cuid())
+  shift       Shift      @relation(fields: [shiftId], references: [id])
+  shiftId     String
+  volunteer   Volunteer  @relation(fields: [volunteerId], references: [id])
+  volunteerId String
+  role        String?
+  status      String     // invited|interested|confirmed|declined|waitlist
+  comment     String?
+  createdAt   DateTime   @default(now())
+}
+
+model Attendance {
+  id          String     @id @default(cuid())
+  shift       Shift      @relation(fields: [shiftId], references: [id])
+  shiftId     String
+  volunteer   Volunteer  @relation(fields: [volunteerId], references: [id])
+  volunteerId String
+  status      String     // present|no_show|partial|cancelled
+  hours       Decimal?   @db.Numeric(5, 2)
+  checkinTs   DateTime?
+  checkoutTs  DateTime?
+  createdAt   DateTime   @default(now())
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  volunteer   Volunteer? @relation(fields: [volunteerId], references: [id])
+  volunteerId String?
+  event       Event?    @relation(fields: [eventId], references: [id])
+  eventId     String?
+  dueDate     DateTime?
+  type        String    // call|remind|ask|followup
+  notes       String?
+  status      String    // open|done
+  createdAt   DateTime  @default(now())
+}
+
+model User {
+  id       String   @id @default(cuid())
+  email    String   @unique
+  password String
+  role     String   // 'coordinator'|'volunteer'
+  createdAt DateTime @default(now())
+}
