@@ -110,7 +110,20 @@ export default function VolunteersPage() {
               <input placeholder="Name" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
               <input placeholder="Email" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} />
               <input placeholder="Phone" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} />
-              <TagMultiSelect value={form.skills} options={allSkills.map(s=>s.name)} onChange={skills=>setForm(f=>({...f, skills}))} placeholder="Add skill" />
+              <TagMultiSelect
+                value={form.skills}
+                options={allSkills.map(s=>s.name)}
+                onChange={skills=>setForm(f=>({...f, skills}))}
+                onRequestCreate={async (label) => {
+                  const res = await fetch('/api/skills', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: label }) })
+                  if (res.ok) {
+                    const data = await res.json()
+                    setAllSkills(prev => [...prev, { id: data.skill.id, name: data.skill.name }])
+                    return data.skill.name
+                  }
+                }}
+                placeholder="Add skill"
+              />
             </div>
             {modal.editing && (
               <div style={{ marginTop:16 }}>

@@ -91,7 +91,7 @@ export default function CalendarPage() {
   return (
     <div>
       {Controls}
-      <CalendarBoard projects={projects} defaultProjectId={filters.projectId} defaultShiftHours={defaultHours} initial={initial} onPickTime={(iso)=>{
+      <CalendarBoard projects={projects} defaultProjectId={filters.projectId} defaultShiftHours={defaultHours} initial={initial} onRefresh={refresh} onPickTime={(iso)=>{
         const d = new Date(iso)
         const pad = (n:number)=> String(n).padStart(2,'0')
         const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`

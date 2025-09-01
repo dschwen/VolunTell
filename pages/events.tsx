@@ -128,7 +128,7 @@ export default function EventsPage() {
                       <button onClick={async()=>{ if(!confirm('Delete this shift?')) return; await fetch('/api/shifts/'+sh.id,{ method:'DELETE' }); await refresh() }}>Delete</button>
                     </div>
                   </div>
-                  <RequirementsEditor options={allSkills} shiftId={sh.id} requirements={sh.requirements} countsBySkill={Object.fromEntries((sh.requirements||[]).map(r=>[r.skill, sh.signups.filter(s=>s.role===r.skill).length]))} onChanged={refresh} />
+                  <RequirementsEditor options={allSkills} shiftId={sh.id} requirements={sh.requirements} countsBySkill={Object.fromEntries((sh.requirements||[]).map(r=>[r.skill, sh.signups.filter(s=>s.role===r.skill).length]))} onChanged={async()=>{ await refresh(); await fetchSkills() }} />
                   <div style={{ marginTop:6 }}>
                     <div style={{ fontSize:13, opacity:.8, marginBottom:4 }}>Assigned volunteers</div>
                     <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
@@ -149,7 +149,7 @@ export default function EventsPage() {
                     </div>
                   </div>
                   <div style={{ marginTop:8, display:'flex', gap:6, alignItems:'center' }}>
-                    <AssignForm volunteers={volunteers} options={Array.from(new Set([...(sh.requirements?.map(r=>r.skill)||[]), ...allSkills]))} onAssign={async (volunteerId, role) => { await fetch('/api/shifts/'+sh.id+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId, role }) }); await refresh() }} />
+                    <AssignForm shiftId={sh.id} initialVolunteers={volunteers} options={Array.from(new Set([...(sh.requirements?.map(r=>r.skill)||[]), ...allSkills]))} onAssign={async (volunteerId, role) => { const res=await fetch('/api/shifts/'+sh.id+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId, role }) }); if(!res.ok){ const d=await res.json().catch(()=>({})); alert(d?.error==='not_available'?'Volunteer not available for this shift': 'Assignment failed'); } await refresh() }} />
                   </div>
                 </div>
               ))}
@@ -189,26 +189,38 @@ export default function EventsPage() {
   )
 }
 
-function AssignForm({ volunteers, roles, onAssign }: { volunteers: {id:string; name:string; skills:string[]}[]; roles: string[]; onAssign: (volunteerId:string, role?:string)=>Promise<void> }) {
+function AssignForm({ shiftId, initialVolunteers, options, onAssign }: { shiftId: string; initialVolunteers: {id:string; name:string; skills:string[]}[]; options: string[]; onAssign: (volunteerId:string, role?:string)=>Promise<void> }) {
   const [volunteerId, setVolunteerId] = useState('')
-  const [role, setRole] = useState('')
+  const [roleList, setRoleList] = useState<string[]>([])
+  const [onlyAvail, setOnlyAvail] = useState(true)
+  const [list, setList] = useState(initialVolunteers)
+  useEffect(() => { setList(initialVolunteers) }, [initialVolunteers])
+  useEffect(() => {
+    (async () => {
+      if (!onlyAvail) { setList(initialVolunteers); return }
+      const res = await fetch('/api/volunteers?'+new URLSearchParams({ availableForShift: shiftId }))
+      const data = await res.json()
+      setList(data.volunteers || [])
+    })()
+  }, [onlyAvail, shiftId, initialVolunteers])
+  const role = roleList[0]
   return (
-    <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+    <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
       <select value={volunteerId} onChange={e=>setVolunteerId(e.target.value)}>
         <option value=''>Select volunteer…</option>
-        {volunteers.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+        {list.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
       </select>
-      <select value={role} onChange={e=>setRole(e.target.value)}>
-        <option value=''>Role (optional)</option>
-        {roles.map(r => <option key={r} value={r}>{r}</option>)}
-      </select>
-      <button disabled={!volunteerId} onClick={async()=>{ try { await onAssign(volunteerId, role || undefined); } catch (e:any) { alert(e?.message || 'Failed to assign') } finally { setVolunteerId(''); setRole('') } }}>Add</button>
+      <div style={{ minWidth:220 }}><TagMultiSelect value={roleList} options={options} onChange={list=>setRoleList(list.slice(0,1))} placeholder='Role (optional)' onRequestCreate={async (label) => { const res = await fetch('/api/skills', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: label }) }); if (res.ok) { const data = await res.json(); return data.skill.name } }} /></div>
+      <label style={{ display:'flex', alignItems:'center', gap:4 }}>
+        <input type='checkbox' checked={onlyAvail} onChange={e=>setOnlyAvail(e.target.checked)} /> Only available
+      </label>
+      <button disabled={!volunteerId} onClick={async()=>{ try { await onAssign(volunteerId, role || undefined); } catch (e:any) { alert(e?.message || 'Failed to assign') } finally { setVolunteerId(''); setRoleList([]) } }}>Add</button>
     </div>
   )
 }
 
-function RequirementsEditor({ shiftId, requirements, countsBySkill, onChanged }: { shiftId: string; requirements: {skill:string; minCount:number; id?:string}[]; countsBySkill: Record<string, number>; onChanged: ()=>void }) {
-  const [skill, setSkill] = useState('')
+function RequirementsEditor({ shiftId, requirements, countsBySkill, onChanged, options }: { shiftId: string; requirements: {skill:string; minCount:number; id?:string}[]; countsBySkill: Record<string, number>; onChanged: ()=>void; options: string[] }) {
+  const [skills, setSkills] = useState<string[]>([])
   const [minCount, setMin] = useState(1)
   return (
     <div>
@@ -222,9 +234,9 @@ function RequirementsEditor({ shiftId, requirements, countsBySkill, onChanged }:
         ))}
       </div>
       <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:8 }}>
-        <input placeholder='Skill (e.g., carpentry)' value={skill} onChange={e=>setSkill(e.target.value)} />
+        <div style={{ minWidth:260 }}><TagMultiSelect value={skills} options={options} onChange={setSkills} placeholder='Skills' onRequestCreate={async (label) => { const res = await fetch('/api/skills', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: label }) }); if (res.ok) { const data = await res.json(); return data.skill.name } }} /></div>
         <input type='number' min={1} style={{ width:80 }} value={minCount} onChange={e=>setMin(Number(e.target.value))} />
-        <button disabled={!skill} onClick={async()=>{ await fetch('/api/shifts/'+shiftId+'/requirements',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ skill, minCount }) }); setSkill(''); setMin(1); onChanged() }}>Add requirement</button>
+        <button disabled={!skills.length} onClick={async()=>{ for (const s of skills) { await fetch('/api/shifts/'+shiftId+'/requirements',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ skill: s, minCount }) }) } setSkills([]); setMin(1); onChanged() }}>Add requirement(s)</button>
       </div>
     </div>
   )

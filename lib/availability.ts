@@ -23,7 +23,11 @@ export function availableOnWeekday(
   availability: Availability[],
   blackouts: Blackout[]
 ) {
-  const availMatch = availability.some(a => a.weekday === weekday && windowsOverlap(startTime, endTime, a.startTime, a.endTime))
+  // If no availability windows are set, treat as available by default
+  const hasWindows = availability && availability.length > 0
+  const availMatch = hasWindows
+    ? availability.some(a => a.weekday === weekday && windowsOverlap(startTime, endTime, a.startTime, a.endTime))
+    : true
   if (!availMatch) return false
   const blocked = blackouts.some(b => {
     if (b.weekday == null) return false
@@ -33,3 +37,30 @@ export function availableOnWeekday(
   return !blocked
 }
 
+// Check availability for a specific date range (UTC-based comparison)
+export function availableForRange(
+  start: Date,
+  end: Date,
+  availability: Availability[],
+  blackouts: Blackout[]
+) {
+  // Use local wall time for comparisons to align with how users enter availability/blackouts
+  const weekday = start.getDay()
+  const toHHMM = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const startTime = toHHMM(start)
+  const endTime = toHHMM(end)
+
+  const toLocalYMD = (d: Date) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
+  // Specific-date blackouts
+  const startYMD = toLocalYMD(start)
+  const hasDateBlackout = blackouts.some(b => b.date && toLocalYMD(b.date) === startYMD && windowsOverlap(startTime, endTime, b.startTime, b.endTime))
+  if (hasDateBlackout) return false
+
+  return availableOnWeekday(weekday, startTime, endTime, availability, blackouts)
+}

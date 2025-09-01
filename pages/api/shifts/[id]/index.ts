@@ -28,7 +28,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ shift })
     }
     if (req.method === 'DELETE') {
-      await prisma.shift.delete({ where: { id } })
+      await prisma.$transaction(async (tx) => {
+        await tx.attendance.deleteMany({ where: { shiftId: id } })
+        await tx.signup.deleteMany({ where: { shiftId: id } })
+        await tx.requirement.deleteMany({ where: { shiftId: id } })
+        await tx.shift.delete({ where: { id } })
+      })
       return res.status(204).end()
     }
     return res.status(405).end()

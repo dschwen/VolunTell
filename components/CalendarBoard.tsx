@@ -5,6 +5,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin, { Draggable } from '@fullcalendar/interaction'
 import { useEffect, useRef, useState } from 'react'
 import Portal from './Portal'
+import TagMultiSelect from './TagMultiSelect'
 
 type Volunteer = { id: string; name: string; skills?: string[]; availSummary?: string; familyColor?: string; primarySkill?: string }
 type Requirement = { skill: string; minCount: number }
@@ -19,10 +20,15 @@ type EventItem = {
   }
 }
 
-export default function CalendarBoard({ initial, onPickTime, onCreate, defaultShiftHours = 6, projects = [], defaultProjectId }: { initial: { events: EventItem[]; volunteers: Volunteer[] }, onPickTime?: (iso: string) => void, onCreate?: (opts: { start: string; end: string; title: string; category: string; description?: string; projectId?: string }) => Promise<void>, defaultShiftHours?: number, projects?: { id: string; name: string }[], defaultProjectId?: string }) {
+export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh, defaultShiftHours = 6, projects = [], defaultProjectId }: { initial: { events: EventItem[]; volunteers: Volunteer[] }, onPickTime?: (iso: string) => void, onCreate?: (opts: { start: string; end: string; title: string; category: string; description?: string; projectId?: string }) => Promise<void>, onRefresh?: () => void | Promise<void>, defaultShiftHours?: number, projects?: { id: string; name: string }[], defaultProjectId?: string }) {
   const [events, setEvents] = useState<EventItem[]>(initial.events)
   const volunteerPaneRef = useRef<HTMLDivElement>(null)
   const [drawer, setDrawer] = useState<{ open: boolean; shiftId?: string; details?: any }>({ open: false })
+  const [skillOptions, setSkillOptions] = useState<string[]>([])
+  const [availList, setAvailList] = useState<{ id: string; name: string; skills?: string[] }[]>([])
+  const [availSet, setAvailSet] = useState<Set<string>>(new Set())
+  const [assignForm, setAssignForm] = useState<{ volunteerId: string; roleList: string[] }>({ volunteerId: '', roleList: [] })
+  const [assignModal, setAssignModal] = useState<{ open: boolean; shiftId?: string; volunteerId?: string; options: string[]; selected: string[] }>({ open:false, options: [], selected: [] })
   const [creator, setCreator] = useState<{ open: boolean; start?: string; end?: string; title: string; category: string; description: string; projectId?: string }>({ open:false, title:'', category:'BUILD', description:'', projectId: defaultProjectId })
 
   useEffect(() => {
@@ -62,6 +68,21 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, defaultSh
     const volunteerId = info.draggedEl.getAttribute('data-id')!
     const role = info.draggedEl.getAttribute('data-role') || undefined
     const shiftId = info.event.extendedProps.shiftId
+    if (!role) {
+      // load skills and show role picker
+      try {
+        const sres = await fetch('/api/skills')
+        const sdata = await sres.json()
+        const global = (sdata.skills||[]).map((s:any)=>s.name)
+        const reqs = (info.event.extendedProps.requirements||[]).map((r:any)=>r.skill)
+        const options = Array.from(new Set([ ...reqs, ...global ]))
+        setAssignModal({ open:true, shiftId, volunteerId, options, selected: [] })
+      } catch {
+        setAssignModal({ open:true, shiftId, volunteerId, options: [], selected: [] })
+      }
+      info.event.remove()
+      return
+    }
     const res = await fetch('/api/shifts/'+shiftId+'/assign', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -81,6 +102,18 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, defaultSh
     const res = await fetch('/api/shifts/' + shiftId)
     const data = await res.json()
     setDrawer({ open: true, shiftId, details: data.shift })
+    try {
+      const [sres, avres] = await Promise.all([
+        fetch('/api/skills'),
+        fetch('/api/volunteers?' + new URLSearchParams({ availableForShift: shiftId }))
+      ])
+      const sdata = await sres.json()
+      setSkillOptions((sdata.skills||[]).map((s:any)=>s.name))
+      const avdata = await avres.json()
+      const list = (avdata.volunteers||[]).map((v:any)=>({ id: v.id, name: v.name, skills: v.skills||[] }))
+      setAvailList(list)
+      setAvailSet(new Set(list.map((v:any)=>v.id)))
+    } catch {}
   }
 
   return (
@@ -90,7 +123,10 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, defaultSh
         <div ref={volunteerPaneRef} className="sidebar" style={{maxHeight:'70vh', overflowY:'auto'}}>
           {initial.volunteers.map(v => (
             <div key={v.id} className="vol-chip" data-id={v.id} data-name={v.name} data-role={v.primarySkill||''}
-              style={{background: v.familyColor || '#f7f7f7'}}>
+              style={{background: v.familyColor || '#f7f7f7', position:'relative'}}>
+              {drawer.open && (
+                <span title={availSet.has(v.id)?'Available':'Not available'} style={{ position:'absolute', top:6, right:6, width:8, height:8, borderRadius:4, background: availSet.has(v.id)?'#22c55e':'#ef4444' }} />
+              )}
               <div><strong>{v.name}</strong></div>
               <div style={{fontSize:'12px'}}>{(v.skills||[]).join(', ')}</div>
               <div style={{fontSize:'11px',opacity:.7}}>Avail: {v.availSummary}</div>
@@ -98,6 +134,29 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, defaultSh
           ))}
         </div>
       </div>
+      {assignModal.open && (
+        <Portal>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.35)', display:'grid', placeItems:'center', zIndex:2100 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:520, maxWidth:'90vw', boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
+            <h3>Select Role</h3>
+            <div style={{ marginTop:8 }}>
+              <TagMultiSelect value={assignModal.selected} options={assignModal.options} onChange={(sel)=>setAssignModal(am=>({ ...am, selected: sel.slice(0,1) }))} placeholder='Role (optional)' />
+            </div>
+            <div style={{ display:'flex', gap:8, marginTop:12, justifyContent:'flex-end' }}>
+              <button onClick={()=>setAssignModal({ open:false, options: [], selected: [] })}>Cancel</button>
+              <button onClick={async()=>{
+                const role = assignModal.selected[0]
+                if (assignModal.shiftId && assignModal.volunteerId) {
+                  await fetch('/api/shifts/'+assignModal.shiftId+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId: assignModal.volunteerId, role }) })
+                }
+                setAssignModal({ open:false, options: [], selected: [] })
+                await onRefresh?.()
+              }}>Assign</button>
+            </div>
+          </div>
+        </div>
+        </Portal>
+      )}
       <div>
         <FullCalendar
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -140,8 +199,8 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, defaultSh
               <input placeholder='Shift description (optional)' value={creator.description} onChange={e=>setCreator(c=>({...c, description:e.target.value}))} />
             </div>
             <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
-              <button onClick={()=>setCreator({ open:false, title:'', category:'BUILD', description:'', projectId: undefined })}>Cancel</button>
-              <button disabled={!creator.start || !creator.end || !creator.title} onClick={async()=>{ await onCreate!({ start: creator.start!, end: creator.end!, title: creator.title, category: creator.category, description: creator.description || undefined, projectId: creator.projectId }); setCreator({ open:false, title:'', category:'BUILD', description:'', projectId: undefined }) }}>Create</button>
+              <button onClick={()=>{ setCreator({ open:false, title:'', category:'BUILD', description:'', projectId: undefined }); onRefresh?.() }}>Cancel</button>
+              <button disabled={!creator.start || !creator.end || !creator.title} onClick={async()=>{ await onCreate!({ start: creator.start!, end: creator.end!, title: creator.title, category: creator.category, description: creator.description || undefined, projectId: creator.projectId }); setCreator({ open:false, title:'', category:'BUILD', description:'', projectId: undefined }); await onRefresh?.() }}>Create</button>
             </div>
           </div>
         </div>
@@ -154,10 +213,10 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, defaultSh
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:720, maxWidth:'90vw', maxHeight:'80vh', overflow:'auto', boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               <h3>Roster – {drawer.details.event?.title}</h3>
-              <button onClick={()=>setDrawer({ open:false })}>Close</button>
+              <button onClick={async ()=>{ setDrawer({ open:false }); await onRefresh?.() }}>Close</button>
             </div>
             <div style={{ fontSize:13, opacity:.7 }}>Shift: {new Date(drawer.details.start).toLocaleString()} → {new Date(drawer.details.end).toLocaleString()}</div>
-            <RequirementsInline details={drawer.details} onChanged={async()=>{ const res=await fetch('/api/shifts/'+drawer.shiftId); const parsed = await res.json(); setDrawer(d=>({ ...d!, details: parsed.shift })) }} />
+            <RequirementsInline options={skillOptions} details={drawer.details} onChanged={async()=>{ const res=await fetch('/api/shifts/'+drawer.shiftId); const parsed = await res.json(); setDrawer(d=>({ ...d!, details: parsed.shift })) }} />
             <div style={{ marginTop:12 }}>
               <div style={{ fontWeight:600, marginBottom:4 }}>Assigned</div>
               {drawer.details.signups.map((s:any)=>(
@@ -174,6 +233,21 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, defaultSh
                   <AttendanceControls shift={drawer.details} signup={s} />
                 </div>
               ))}
+            </div>
+            <div style={{ marginTop:16 }}>
+              <div style={{ fontWeight:600, marginBottom:6 }}>Available volunteers</div>
+              <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                <select value={assignForm.volunteerId} onChange={e=>setAssignForm(f=>({...f, volunteerId: e.target.value}))}>
+                  <option value=''>Select…</option>
+                  {availList.filter(v => !(drawer.details.signups||[]).some((s:any)=>s.volunteerId===v.id)).map(v => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+                <div style={{ minWidth:220 }}>
+                  <TagMultiSelect value={assignForm.roleList} options={Array.from(new Set([...(drawer.details.requirements||[]).map((r:any)=>r.skill), ...skillOptions]))} onChange={list=>setAssignForm(f=>({...f, roleList: list.slice(0,1)}))} placeholder='Role (optional)' onRequestCreate={async (label) => { const res = await fetch('/api/skills', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: label }) }); if (res.ok) { const data = await res.json(); return data.skill.name } }} />
+                </div>
+                <button disabled={!assignForm.volunteerId} onClick={async()=>{ if(!drawer.shiftId) return; const role = assignForm.roleList[0]; await fetch('/api/shifts/'+drawer.shiftId+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId: assignForm.volunteerId, role }) }); const ref=await fetch('/api/shifts/'+drawer.shiftId); const parsed=await ref.json(); setDrawer(d=>({ ...d!, details: parsed.shift })); setAssignForm({ volunteerId:'', roleList: [] }) }}>Assign</button>
+              </div>
             </div>
           </div>
         </div>
@@ -203,8 +277,8 @@ function AttendanceControls({ shift, signup }: { shift: any; signup: any }) {
   )
 }
 
-function RequirementsInline({ details, onChanged }: { details: any; onChanged: ()=>void }) {
-  const [skill, setSkill] = useState('')
+function RequirementsInline({ details, onChanged, options }: { details: any; onChanged: ()=>void; options: string[] }) {
+  const [skills, setSkills] = useState<string[]>([])
   const [minCount, setMin] = useState(1)
   return (
     <div style={{ marginTop:8 }}>
@@ -218,9 +292,9 @@ function RequirementsInline({ details, onChanged }: { details: any; onChanged: (
         ))}
       </div>
       <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:8 }}>
-        <input placeholder='Skill' value={skill} onChange={e=>setSkill(e.target.value)} />
+        <div style={{ minWidth:260 }}><TagMultiSelect value={skills} options={options} onChange={setSkills} placeholder='Skills' onRequestCreate={async (label) => { const res = await fetch('/api/skills', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: label }) }); if (res.ok) { const data = await res.json(); return data.skill.name } }} /></div>
         <input type='number' min={1} style={{ width:80 }} value={minCount} onChange={e=>setMin(Number(e.target.value))} />
-        <button disabled={!skill} onClick={async()=>{ await fetch('/api/shifts/'+details.id+'/requirements',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ skill, minCount }) }); setSkill(''); setMin(1); onChanged() }}>Add</button>
+        <button disabled={!skills.length} onClick={async()=>{ for (const s of skills) { await fetch('/api/shifts/'+details.id+'/requirements',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ skill: s, minCount }) }) } setSkills([]); setMin(1); onChanged() }}>Add</button>
       </div>
     </div>
   )

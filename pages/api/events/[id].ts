@@ -14,7 +14,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ event })
     }
     if (req.method === 'DELETE') {
-      await prisma.event.delete({ where: { id } })
+      await prisma.$transaction(async (tx) => {
+        // Clear tasks referencing this event
+        await tx.task.deleteMany({ where: { eventId: id } })
+        // Gather shifts to cascade-delete their dependents
+        const shifts = await tx.shift.findMany({ where: { eventId: id }, select: { id: true } })
+        const ids = shifts.map(s => s.id)
+        if (ids.length) {
+          await tx.attendance.deleteMany({ where: { shiftId: { in: ids } } })
+          await tx.signup.deleteMany({ where: { shiftId: { in: ids } } })
+          await tx.requirement.deleteMany({ where: { shiftId: { in: ids } } })
+          await tx.shift.deleteMany({ where: { id: { in: ids } } })
+        }
+        await tx.event.delete({ where: { id } })
+      })
       return res.status(204).end()
     }
     return res.status(405).end()
@@ -23,4 +36,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'server_error' })
   }
 }
-

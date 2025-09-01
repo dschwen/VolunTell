@@ -5,9 +5,10 @@ type Props = {
   options?: string[]
   placeholder?: string
   onChange: (next: string[]) => void
+  onRequestCreate?: (label: string) => Promise<string | void>
 }
 
-export default function TagMultiSelect({ value, options = [], placeholder, onChange }: Props) {
+export default function TagMultiSelect({ value, options = [], placeholder, onChange, onRequestCreate }: Props) {
   const [input, setInput] = useState('')
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -19,11 +20,15 @@ export default function TagMultiSelect({ value, options = [], placeholder, onCha
   }, [])
 
   const normalized = useMemo(() => new Set(value.map(v => v.trim()).filter(Boolean)), [value])
-  const add = (s: string) => {
+  const add = async (s: string) => {
     const v = s.trim()
     if (!v) return
     if (normalized.has(v)) return
-    onChange([ ...value, v ])
+    let label = v
+    if (onRequestCreate && !options.includes(v)) {
+      try { const created = await onRequestCreate(v); if (created) label = created } catch {}
+    }
+    onChange([ ...value, label ])
     setInput('')
     setOpen(false)
   }
@@ -34,9 +39,9 @@ export default function TagMultiSelect({ value, options = [], placeholder, onCha
     return options.filter(o => !normalized.has(o) && (!q || o.toLowerCase().includes(q))).slice(0, 8)
   }, [options, normalized, input])
 
-  const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const onKey = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault(); add(input)
+      e.preventDefault(); await add(input)
     } else if (e.key === 'Backspace' && !input && value.length) {
       del(value[value.length - 1])
     }
@@ -67,9 +72,13 @@ export default function TagMultiSelect({ value, options = [], placeholder, onCha
               {opt}
             </div>
           ))}
+          {onRequestCreate && input.trim() && !options.includes(input.trim()) && (
+            <div key={'__create'} style={{ padding:'6px 10px', cursor:'pointer', borderTop:'1px solid #f2f2f2', background:'#f9fafb' }} onMouseDown={e=>e.preventDefault()} onClick={()=>add(input)}>
+              Create "{input.trim()}"
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
-
