@@ -30,6 +30,7 @@ model Volunteer {
   availability Availability[]
   signups      Signup[]
   attendance   Attendance[]
+  tasks        Task[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
@@ -51,6 +52,7 @@ model Event {
   end       DateTime
   notes     String?
   shifts    Shift[]
+  tasks     Task[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -94,7 +96,7 @@ model Attendance {
   volunteer   Volunteer  @relation(fields: [volunteerId], references: [id])
   volunteerId String
   status      String     // present|no_show|partial|cancelled
-  hours       Decimal?   @db.Numeric(5, 2)
+  hours       Decimal?   @db.Decimal(5, 2)
   checkinTs   DateTime?
   checkoutTs  DateTime?
   createdAt   DateTime   @default(now())

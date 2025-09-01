@@ -1,0 +1,15 @@
+# Reduce build context and avoid permission issues
+node_modules
+.next
+db
+.git
+.gitignore
+Dockerfile*
+docker-compose*.yml
+.env*
+npm-debug.log*
+yarn-error.log*
+coverage
+.DS_Store
+**/*.log
+

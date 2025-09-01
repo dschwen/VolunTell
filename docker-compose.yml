@@ -1,6 +1,3 @@
-
-version: "3.9"
-
 services:
   db:
     image: postgres:16
@@ -10,9 +7,9 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
     volumes:
-      - ./db:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "55432:5432" # host:container to avoid conflicts on 5432
 
   adminer:
     image: adminer
@@ -32,8 +29,12 @@ services:
       NEXTAUTH_SECRET: "replace-me"
       NEXTAUTH_URL: "http://localhost:3000"
       NODE_ENV: "development"
+    command: npm run dev
     ports:
       - "3000:3000"
     volumes:
       - .:/usr/src/app
       - /usr/src/app/node_modules
+
+volumes:
+  pgdata:
