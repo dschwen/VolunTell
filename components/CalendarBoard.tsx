@@ -4,6 +4,7 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin, { Draggable } from '@fullcalendar/interaction'
 import { useEffect, useRef, useState } from 'react'
+import Portal from './Portal'
 
 type Volunteer = { id: string; name: string; skills?: string[]; availSummary?: string; familyColor?: string; primarySkill?: string }
 type Requirement = { skill: string; minCount: number }
@@ -114,8 +115,9 @@ export default function CalendarBoard({ initial, onPickTime, onCreate }: { initi
         />
       </div>
       {creator.open && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center' }}>
-          <div style={{ background:'#fff', padding:16, borderRadius:8, width:520 }}>
+        <Portal>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center', zIndex:2000 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:520, boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
             <h3>Create Event + Shift</h3>
             <div style={{ display:'grid', gap:8 }}>
               <label>Start <input type='datetime-local' value={creator.start?.slice(0,16) || ''} onChange={e=>setCreator(c=>({...c, start:e.target.value}))} /></label>
@@ -136,27 +138,29 @@ export default function CalendarBoard({ initial, onPickTime, onCreate }: { initi
             </div>
           </div>
         </div>
+        </Portal>
       )}
       
       {drawer.open && drawer.details && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center' }}>
-          <div style={{ background:'#fff', padding:16, borderRadius:8, width:560, maxHeight:'80vh', overflow:'auto' }}>
+        <Portal>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center', zIndex:2000 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:560, maxHeight:'80vh', overflow:'auto', boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               <h3>Roster – {drawer.details.event?.title}</h3>
               <button onClick={()=>setDrawer({ open:false })}>Close</button>
             </div>
             <div style={{ fontSize:13, opacity:.7 }}>Shift: {new Date(drawer.details.start).toLocaleString()} → {new Date(drawer.details.end).toLocaleString()}</div>
-            <RequirementsInline details={drawer.details} onChanged={async()=>{ const res=await fetch('/api/shifts/'+drawer.shiftId); setDrawer(d=>({ ...d!, details: (await res.json()).shift })) }} />
+            <RequirementsInline details={drawer.details} onChanged={async()=>{ const res=await fetch('/api/shifts/'+drawer.shiftId); const parsed = await res.json(); setDrawer(d=>({ ...d!, details: parsed.shift })) }} />
             <div style={{ marginTop:12 }}>
               <div style={{ fontWeight:600, marginBottom:4 }}>Assigned</div>
               {drawer.details.signups.map((s:any)=>(
                 <div key={s.id} style={{ display:'flex', alignItems:'center', gap:8, borderBottom:'1px solid #f2f2f2', padding:'6px 0' }}>
                   <span style={{ minWidth:180 }}>{s.volunteer?.name || s.volunteerId}</span>
-                  <select value={s.role || ''} onChange={async(e)=>{ const role=e.target.value||null; await fetch('/api/signups/'+s.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ role }) }); const res=await fetch('/api/shifts/'+drawer.shiftId); setDrawer(d=>({ ...d!, details: (await res.json()).shift })) }}>
+                  <select value={s.role || ''} onChange={async(e)=>{ const role=e.target.value||null; await fetch('/api/signups/'+s.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ role }) }); const res=await fetch('/api/shifts/'+drawer.shiftId); const parsed = await res.json(); setDrawer(d=>({ ...d!, details: parsed.shift })) }}>
                     <option value=''>Role</option>
                     {drawer.details.requirements.map((r:any)=>(<option key={r.id} value={r.skill}>{r.skill}</option>))}
                   </select>
-                  <button onClick={async()=>{ if(!confirm('Remove from shift?')) return; await fetch('/api/signups/'+s.id,{ method:'DELETE' }); const res=await fetch('/api/shifts/'+drawer.shiftId); setDrawer(d=>({ ...d!, details: (await res.json()).shift }));
+                  <button onClick={async()=>{ if(!confirm('Remove from shift?')) return; await fetch('/api/signups/'+s.id,{ method:'DELETE' }); const res=await fetch('/api/shifts/'+drawer.shiftId); const parsed = await res.json(); setDrawer(d=>({ ...d!, details: parsed.shift }));
                     // update meter in calendar event too
                     setEvents(evts=>evts.map(ev=> ev.extendedProps.shiftId===drawer.shiftId ? ({...ev, extendedProps:{...ev.extendedProps, signedups: (ev.extendedProps.signedups||[]).filter((x:any)=>x.volunteerId!==s.volunteerId)}}) : ev))
                   }}>Remove</button>
@@ -166,6 +170,7 @@ export default function CalendarBoard({ initial, onPickTime, onCreate }: { initi
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   )

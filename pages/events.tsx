@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 type Project = { id: string; name: string }
-type Signup = { id: string; volunteerId: string; role?: string; status: string }
+type Signup = { id: string; volunteerId: string; role?: string; status: string; volunteer?: { name: string } }
 type Requirement = { skill: string; minCount: number }
 type Shift = { id: string; start: string; end: string; requirements: Requirement[]; signups: Signup[] }
 type Event = { id: string; title: string; start: string; end: string; category: string; projectId?: string; project?: Project; shifts: Shift[] }
