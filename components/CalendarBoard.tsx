@@ -29,6 +29,13 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
   const [availSet, setAvailSet] = useState<Set<string>>(new Set())
   const [assignForm, setAssignForm] = useState<{ volunteerId: string; roleList: string[] }>({ volunteerId: '', roleList: [] })
   const [assignModal, setAssignModal] = useState<{ open: boolean; shiftId?: string; volunteerId?: string; options: string[]; selected: string[] }>({ open:false, options: [], selected: [] })
+  const [toasts, setToasts] = useState<{ id: number; text: string }[]>([])
+
+  function showToast(text: string) {
+    const id = Date.now() + Math.floor(Math.random()*1000)
+    setToasts(t => [...t, { id, text }])
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 2500)
+  }
   const [creator, setCreator] = useState<{ open: boolean; start?: string; end?: string; title: string; category: string; description: string; projectId?: string }>({ open:false, title:'', category:'BUILD', description:'', projectId: defaultProjectId })
 
   useEffect(() => {
@@ -68,23 +75,70 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
   const handleReceive = async (info: any) => {
     const volunteerId = info.draggedEl.getAttribute('data-id')!
     const role = info.draggedEl.getAttribute('data-role') || undefined
-    const shiftId = info.event.extendedProps.shiftId
-    if (!role) {
-      // load skills and show role picker
-      try {
-        const sres = await fetch('/api/skills')
-        const sdata = await sres.json()
-        const reqs = (info.event.extendedProps.requirements||[]).map((r:any)=>r.skill)
-        const options = Array.from(new Set([ ...reqs ]))
-        // Limit to volunteer's skills if known
-        const allVols = [...(initial.volunteers||[]), ...availList]
-        const vol = allVols.find((v:any) => v.id === volunteerId)
-        const filtered = vol?.skills?.length ? options.filter((o:string)=> (vol.skills||[]).includes(o)) : options
-        setAssignModal({ open:true, shiftId, volunteerId, options: filtered, selected: [] })
-      } catch {
-        setAssignModal({ open:true, shiftId, volunteerId, options: [], selected: [] })
+    let shiftId = info.event.extendedProps.shiftId as string | undefined
+    let reqs: string[] = (info.event.extendedProps.requirements||[]).map((r:any)=>r.skill)
+    // Fallback: if drop created a new event (no shiftId), infer target shift by time containment
+    if (!shiftId) {
+      const t = info.event.start as Date
+      const target = (events as any[]).find(e => {
+        const s = new Date(e.start as any).getTime()
+        const ed = new Date(e.end as any).getTime()
+        const tt = t?.getTime() || 0
+        return s <= tt && tt < ed
+      })
+      if (target) {
+        shiftId = target.extendedProps.shiftId
+        reqs = (target.extendedProps.requirements||[]).map((r:any)=>r.skill)
+      } else {
+        showToast('Drop onto an existing shift to assign')
+        info.event.remove()
+        info.draggedEl.classList.add('shake')
+        setTimeout(()=>info.draggedEl.classList.remove('shake'), 600)
+        return
       }
+    }
+    const allVols = [...(initial.volunteers||[]), ...availList]
+    const vol = allVols.find((v:any) => v.id === volunteerId)
+    const intersect = (reqs as string[]).filter(s => (vol?.skills||[]).includes(s))
+    // If no role provided, open compact dropdown with intersection
+    if (!role) {
+      if (intersect.length === 0) {
+        try {
+          const dres = await fetch('/api/volunteers?'+ new URLSearchParams({ availableForShift: shiftId, debug: 'true' }))
+          const data = await dres.json()
+          const ex = (data?.debug?.excluded||[]).find((x:any)=>x.id===volunteerId)
+          if (ex && Array.isArray(ex.reasons)) {
+            if (ex.reasons.includes('outside_availability') || ex.reasons.find((r:string)=>r.startsWith('blackout'))) {
+              showToast('Volunteer not available for this shift')
+            } else if (ex.reasons.includes('double_booked')) {
+              showToast('Volunteer already booked for overlapping shift')
+            } else if (ex.reasons.includes('missing_required_skill')) {
+              showToast('Volunteer has no required skills for this shift')
+            } else {
+              showToast('Cannot assign: no matching role')
+            }
+          } else {
+            showToast('Cannot assign: no matching role')
+          }
+        } catch {
+          showToast('Cannot assign: no matching role')
+        }
+        info.event.remove()
+        info.draggedEl.classList.add('shake')
+        setTimeout(()=>info.draggedEl.classList.remove('shake'), 600)
+        return
+      }
+      // Show dropdown with intersect options
+      setAssignModal({ open:true, shiftId, volunteerId, options: intersect, selected: [] })
       info.event.remove()
+      return
+    }
+    // If role provided, validate it against requirements and volunteer skills
+    if (!reqs.includes(role) || !(vol?.skills||[]).includes(role)) {
+      showToast('Cannot assign: role not required or not in volunteer skills')
+      info.event.remove()
+      info.draggedEl.classList.add('shake')
+      setTimeout(()=>info.draggedEl.classList.remove('shake'), 600)
       return
     }
     const res = await fetch('/api/shifts/'+shiftId+'/assign', {
@@ -94,7 +148,9 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
     })
     if (!res.ok) {
       const data = await res.json().catch(()=>({}))
-      alert(data?.error === 'double_booked' ? `Volunteer already booked: ${data.conflict?.eventTitle}` : 'Assignment failed')
+      if (data?.error === 'double_booked') showToast(`Volunteer already booked: ${data.conflict?.eventTitle || ''}`)
+      else if (data?.error === 'not_available') showToast('Volunteer not available for this shift')
+      else showToast('Assignment failed')
       info.draggedEl.classList.add('shake')
       setTimeout(()=>info.draggedEl.classList.remove('shake'), 600)
       return
@@ -148,14 +204,23 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:520, maxWidth:'90vw', boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
             <h3>Select Role</h3>
             <div style={{ marginTop:8 }}>
-              <TagMultiSelect value={assignModal.selected} options={assignModal.options} onChange={(sel)=>setAssignModal(am=>({ ...am, selected: sel.slice(0,1) }))} placeholder='Role (optional)' />
+              <select value={assignModal.selected[0] || ''} onChange={e=>setAssignModal(am=>({ ...am, selected: e.target.value ? [e.target.value] : [] }))}>
+                <option value=''>Choose role…</option>
+                {assignModal.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
             </div>
             <div style={{ display:'flex', gap:8, marginTop:12, justifyContent:'flex-end' }}>
               <button onClick={()=>setAssignModal({ open:false, options: [], selected: [] })}>Cancel</button>
               <button onClick={async()=>{
                 const role = assignModal.selected[0]
                 if (assignModal.shiftId && assignModal.volunteerId) {
-                  await fetch('/api/shifts/'+assignModal.shiftId+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId: assignModal.volunteerId, role }) })
+                  const res = await fetch('/api/shifts/'+assignModal.shiftId+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId: assignModal.volunteerId, role }) })
+                  if (!res.ok) {
+                    const data = await res.json().catch(()=>({}))
+                    if (data?.error === 'double_booked') showToast(`Volunteer already booked: ${data.conflict?.eventTitle || ''}`)
+                    else if (data?.error === 'not_available') showToast('Volunteer not available for this shift')
+                    else showToast('Assignment failed')
+                  }
                 }
                 setAssignModal({ open:false, options: [], selected: [] })
                 await onRefresh?.()
@@ -271,6 +336,14 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
         </div>
         </Portal>
       )}
+      {/* Toasts */}
+      <div style={{ position:'fixed', top:12, right:12, display:'grid', gap:8, zIndex:3000 }}>
+        {toasts.map(t => (
+          <div key={t.id} style={{ background:'#111', color:'#fff', padding:'8px 12px', borderRadius:6, boxShadow:'0 4px 12px rgba(0,0,0,.3)', opacity:.95 }}>
+            {t.text}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
