@@ -7,6 +7,22 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum EventCategory {
+  RESTORE
+  BUILD
+  RENOVATION
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  colorTag  String?
+  notes     String?
+  events    Event[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Family {
   id        String      @id @default(cuid())
   name      String
@@ -28,6 +44,7 @@ model Volunteer {
   notes        String?
   isActive     Boolean       @default(true)
   availability Availability[]
+  blackouts    Blackout[]
   signups      Signup[]
   attendance   Attendance[]
   tasks        Task[]
@@ -51,6 +68,9 @@ model Event {
   start     DateTime
   end       DateTime
   notes     String?
+  category  EventCategory @default(BUILD)
+  project   Project?   @relation(fields: [projectId], references: [id])
+  projectId String?
   shifts    Shift[]
   tasks     Task[]
   createdAt DateTime  @default(now())
@@ -87,6 +107,8 @@ model Signup {
   status      String     // invited|interested|confirmed|declined|waitlist
   comment     String?
   createdAt   DateTime   @default(now())
+
+  @@unique([volunteerId, shiftId])
 }
 
 model Attendance {
@@ -121,4 +143,18 @@ model User {
   password String
   role     String   // 'coordinator'|'volunteer'
   createdAt DateTime @default(now())
+}
+
+// Blackouts represent recurring or specific blocks when a volunteer is unavailable
+model Blackout {
+  id           String     @id @default(cuid())
+  volunteer    Volunteer  @relation(fields: [volunteerId], references: [id])
+  volunteerId  String
+  // Either a specific date (UTC) or a recurring weekday (0=Sun..6=Sat)
+  date         DateTime?
+  weekday      Int?
+  startTime    String     // '08:00'
+  endTime      String     // '15:30'
+  notes        String?
+  createdAt    DateTime   @default(now())
 }

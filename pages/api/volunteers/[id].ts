@@ -1,0 +1,23 @@
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { prisma } from '../../../lib/prisma'
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { id } = req.query
+  if (typeof id !== 'string') return res.status(400).json({ error: 'invalid id' })
+  try {
+    if (req.method === 'PATCH') {
+      const { name, email, phone, skills, familyId, notes, isActive } = req.body || {}
+      const volunteer = await prisma.volunteer.update({ where: { id }, data: { name, email, phone, skills, familyId, notes, isActive } })
+      return res.status(200).json({ volunteer })
+    }
+    if (req.method === 'DELETE') {
+      const volunteer = await prisma.volunteer.update({ where: { id }, data: { isActive: false } })
+      return res.status(200).json({ volunteer })
+    }
+    return res.status(405).end()
+  } catch (e: any) {
+    console.error(e)
+    return res.status(500).json({ error: 'server_error' })
+  }
+}
+
