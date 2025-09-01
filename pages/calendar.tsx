@@ -6,7 +6,7 @@ type Project = { id: string; name: string }
 
 export default function CalendarPage() {
   const [projects, setProjects] = useState<Project[]>([])
-  const [filters, setFilters] = useState<{ projectId?: string; category?: string }>({})
+  const [filters, setFilters] = useState<{ projectId?: string; category?: string; onlyAvail?: boolean; at?: string }>({ onlyAvail: false, at: '' })
   const [initial, setInitial] = useState({ events: [], volunteers: [] } as any)
   const categories = ['BUILD','RESTORE','RENOVATION']
 
@@ -45,7 +45,7 @@ export default function CalendarPage() {
     if (filters.category) params.set('category', filters.category)
     const [evRes, volRes] = await Promise.all([
       fetch('/api/events?'+params.toString()),
-      fetch('/api/volunteers?active=true')
+      fetch('/api/volunteers?'+new URLSearchParams({ active:'true', ...(filters.onlyAvail && filters.at ? { availableAt: new Date(filters.at).toISOString() } : {}) as any }))
     ])
     const evData = await evRes.json()
     const volData = await volRes.json()
@@ -53,7 +53,7 @@ export default function CalendarPage() {
   }
 
   const Controls = useMemo(() => (
-    <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+    <div style={{ display:'flex', gap:8, marginBottom:8, flexWrap:'wrap' }}>
       <select value={filters.projectId || ''} onChange={e=>setFilters(f=>({...f, projectId: e.target.value || undefined}))}>
         <option value=''>All Projects</option>
         {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -62,6 +62,10 @@ export default function CalendarPage() {
         <option value=''>All Categories</option>
         {categories.map(c => <option key={c} value={c}>{c}</option>)}
       </select>
+      <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+        <input type='checkbox' checked={!!filters.onlyAvail} onChange={e=>setFilters(f=>({ ...f, onlyAvail: e.target.checked }))} /> Only show available at
+        <input type='datetime-local' value={filters.at || ''} onChange={e=>setFilters(f=>({ ...f, at: e.target.value }))} />
+      </label>
       <button onClick={refresh}>Refresh</button>
     </div>
   ), [filters, projects])

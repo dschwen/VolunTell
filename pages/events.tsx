@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 
 type Project = { id: string; name: string }
-type Event = { id: string; title: string; start: string; end: string; category: string; projectId?: string; project?: Project }
+type Signup = { id: string; volunteerId: string; role?: string; status: string }
+type Requirement = { skill: string; minCount: number }
+type Shift = { id: string; start: string; end: string; requirements: Requirement[]; signups: Signup[] }
+type Event = { id: string; title: string; start: string; end: string; category: string; projectId?: string; project?: Project; shifts: Shift[] }
 
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([])
@@ -12,8 +15,9 @@ export default function EventsPage() {
   const [form, setForm] = useState<{ title: string; start: string; end: string; category: string; projectId?: string; location?: string; notes?: string }>(
     { title:'', start:'', end:'', category:'BUILD' }
   )
+  const [volunteers, setVolunteers] = useState<{ id:string; name:string; skills:string[] }[]>([])
 
-  useEffect(() => { refresh(); fetchProjects() }, [])
+  useEffect(() => { refresh(); fetchProjects(); fetchVolunteers() }, [])
   useEffect(() => { refresh() }, [filters.projectId, filters.category])
 
   async function fetchProjects() {
@@ -30,6 +34,11 @@ export default function EventsPage() {
     const data = await res.json()
     setEvents(data.events || [])
     setLoading(false)
+  }
+  async function fetchVolunteers() {
+    const res = await fetch('/api/volunteers?active=true')
+    const data = await res.json()
+    setVolunteers((data.volunteers||[]).map((v:any)=>({ id:v.id, name:v.name, skills:v.skills||[] })))
   }
   function openAdd() { setForm({ title:'', start:'', end:'', category:'BUILD', projectId: filters.projectId }); setModal({ open:true }) }
   function openEdit(ev: Event) {
@@ -93,6 +102,48 @@ export default function EventsPage() {
         </tbody>
       </table>
 
+      <div style={{ marginTop: 12 }}>
+        {evs.map(ev => (
+          <div key={ev.id} style={{ padding:'8px 0', borderTop:'1px dashed #e5e7eb' }}>
+            <strong>{ev.title}</strong>
+            <div style={{ display:'grid', gap:8, marginTop:6 }}>
+              {ev.shifts?.map(sh => (
+                <div key={sh.id} style={{ padding:8, border:'1px solid #eee', borderRadius:6 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <div>
+                      <span style={{ fontWeight:600 }}>Shift</span>: {new Date(sh.start).toLocaleString()} → {new Date(sh.end).toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:12, marginTop:6, flexWrap:'wrap' }}>
+                    {sh.requirements?.map(r => (
+                      <span key={r.skill} style={{ padding:'2px 6px', border:'1px solid #ddd', borderRadius:12, fontSize:12 }}>
+                        {r.skill}: {sh.signups.filter(s=>s.role===r.skill).length}/{r.minCount}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ marginTop:6 }}>
+                    <div style={{ fontSize:13, opacity:.8, marginBottom:4 }}>Assigned volunteers</div>
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                      {sh.signups.map(s => (
+                        <span key={s.id} style={{ padding:'2px 6px', border:'1px solid #ddd', borderRadius:12, fontSize:12 }}>
+                          {s.volunteerId}{s.role?` (${s.role})`:''}
+                          {' '}<button onClick={async()=>{ if(!confirm('Remove assignment?')) return; await fetch('/api/signups/'+s.id,{method:'DELETE'}); await refresh() }}>
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginTop:8, display:'flex', gap:6, alignItems:'center' }}>
+                    <AssignForm volunteers={volunteers} onAssign={async (volunteerId, role) => { await fetch('/api/shifts/'+sh.id+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId, role }) }); await refresh() }} roles={Array.from(new Set(sh.requirements?.map(r=>r.skill)))} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          ))}
+      </div>
+
       {modal.open && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center' }}>
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:520 }}>
@@ -124,3 +175,20 @@ export default function EventsPage() {
   )
 }
 
+function AssignForm({ volunteers, roles, onAssign }: { volunteers: {id:string; name:string; skills:string[]}[]; roles: string[]; onAssign: (volunteerId:string, role?:string)=>Promise<void> }) {
+  const [volunteerId, setVolunteerId] = useState('')
+  const [role, setRole] = useState('')
+  return (
+    <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+      <select value={volunteerId} onChange={e=>setVolunteerId(e.target.value)}>
+        <option value=''>Select volunteer…</option>
+        {volunteers.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+      </select>
+      <select value={role} onChange={e=>setRole(e.target.value)}>
+        <option value=''>Role (optional)</option>
+        {roles.map(r => <option key={r} value={r}>{r}</option>)}
+      </select>
+      <button disabled={!volunteerId} onClick={async()=>{ await onAssign(volunteerId, role || undefined); setVolunteerId(''); setRole('') }}>Add</button>
+    </div>
+  )
+}
