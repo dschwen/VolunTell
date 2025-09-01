@@ -10,6 +10,7 @@ export default function CalendarPage() {
   const [initial, setInitial] = useState({ events: [], volunteers: [] } as any)
   const [defaultHours, setDefaultHours] = useState<number>(6)
   const [trimByRequiredSkills, setTrimByRequiredSkills] = useState<boolean>(false)
+  const [enableCalendarDnD, setEnableCalendarDnD] = useState<boolean>(false)
   const categories = ['BUILD','RESTORE','RENOVATION']
 
   useEffect(() => { fetchProjects(); fetchSettings() }, [])
@@ -62,11 +63,12 @@ export default function CalendarPage() {
 
   async function fetchSettings() {
     try {
-      const res = await fetch('/api/settings?keys=defaultShiftHours,requireSkillsForAvailability')
+      const res = await fetch('/api/settings?keys=defaultShiftHours,requireSkillsForAvailability,enableCalendarDnD')
       const data = await res.json()
       const v = Number(data.settings?.defaultShiftHours || '6')
       setDefaultHours(Number.isFinite(v) && v > 0 ? v : 6)
       setTrimByRequiredSkills((data.settings?.requireSkillsForAvailability || 'false') === 'true')
+      setEnableCalendarDnD((data.settings?.enableCalendarDnD || 'false') === 'true')
     } catch {}
   }
 
@@ -108,7 +110,7 @@ export default function CalendarPage() {
           await fetch('/api/events/'+data.event.id+'/shifts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start: startIso, end: endIso, description }) })
         }
         await refresh()
-      }} trimByRequiredSkills={trimByRequiredSkills} />
+      }} trimByRequiredSkills={trimByRequiredSkills} enableDnD={enableCalendarDnD} />
     </div>
   )
 }

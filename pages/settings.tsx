@@ -8,6 +8,7 @@ export default function SettingsPage() {
   const [defaultHours, setDefaultHours] = useState<number>(6)
   const [trimByRequiredSkills, setTrimByRequiredSkills] = useState<boolean>(false)
   const [allowUtcLegacy, setAllowUtcLegacy] = useState<boolean>(false)
+  const [enableCalendarDnD, setEnableCalendarDnD] = useState<boolean>(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => { refresh() }, [])
@@ -16,7 +17,7 @@ export default function SettingsPage() {
     setLoading(true)
     const [sRes, setRes] = await Promise.all([
       fetch('/api/skills'),
-      fetch('/api/settings?keys=defaultShiftHours,requireSkillsForAvailability,allowUtcLegacyAvailability')
+      fetch('/api/settings?keys=defaultShiftHours,requireSkillsForAvailability,allowUtcLegacyAvailability,enableCalendarDnD')
     ])
     const sData = await sRes.json(); const stData = await setRes.json()
     setSkills(sData.skills || [])
@@ -24,6 +25,7 @@ export default function SettingsPage() {
     setDefaultHours(Number.isFinite(v) && v > 0 ? v : 6)
     setTrimByRequiredSkills((stData.settings?.requireSkillsForAvailability || 'false') === 'true')
     setAllowUtcLegacy((stData.settings?.allowUtcLegacyAvailability || 'false') === 'true')
+    setEnableCalendarDnD((stData.settings?.enableCalendarDnD || 'false') === 'true')
     setLoading(false)
   }
 
@@ -50,6 +52,10 @@ export default function SettingsPage() {
     await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ allowUtcLegacyAvailability: allowUtcLegacy ? 'true' : 'false' }) })
     alert('Saved')
   }
+  async function saveCalendarDnD() {
+    await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enableCalendarDnD: enableCalendarDnD ? 'true' : 'false' }) })
+    alert('Saved')
+  }
 
   return (
     <div>
@@ -63,6 +69,17 @@ export default function SettingsPage() {
             <button onClick={saveDefaultHours} disabled={loading}>Save</button>
           </div>
           <div style={{ fontSize:12, opacity:.7 }}>Used when creating shifts from calendar selection.</div>
+        </section>
+        <section>
+          <h3>Calendar Drag & Drop</h3>
+          <label style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <input type='checkbox' checked={enableCalendarDnD} onChange={e=>setEnableCalendarDnD(e.target.checked)} />
+            Enable drag‑and‑drop volunteer assignment on calendar
+          </label>
+          <div style={{ fontSize:12, opacity:.7, marginTop:4 }}>When disabled, use the roster drawer to assign volunteers.</div>
+          <div style={{ marginTop:8 }}>
+            <button onClick={saveCalendarDnD} disabled={loading}>Save</button>
+          </div>
         </section>
         <section>
           <h3>Available Skills</h3>

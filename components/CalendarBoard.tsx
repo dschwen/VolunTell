@@ -20,7 +20,7 @@ type EventItem = {
   }
 }
 
-export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh, defaultShiftHours = 6, projects = [], defaultProjectId, trimByRequiredSkills = false }: { initial: { events: EventItem[]; volunteers: Volunteer[] }, onPickTime?: (iso: string) => void, onCreate?: (opts: { start: string; end: string; title: string; category: string; description?: string; projectId?: string }) => Promise<void>, onRefresh?: () => void | Promise<void>, defaultShiftHours?: number, projects?: { id: string; name: string }[], defaultProjectId?: string, trimByRequiredSkills?: boolean }) {
+export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh, defaultShiftHours = 6, projects = [], defaultProjectId, trimByRequiredSkills = false, enableDnD = false }: { initial: { events: EventItem[]; volunteers: Volunteer[] }, onPickTime?: (iso: string) => void, onCreate?: (opts: { start: string; end: string; title: string; category: string; description?: string; projectId?: string }) => Promise<void>, onRefresh?: () => void | Promise<void>, defaultShiftHours?: number, projects?: { id: string; name: string }[], defaultProjectId?: string, trimByRequiredSkills?: boolean, enableDnD?: boolean }) {
   const [events, setEvents] = useState<EventItem[]>(initial.events)
   const volunteerPaneRef = useRef<HTMLDivElement>(null)
   const [drawer, setDrawer] = useState<{ open: boolean; shiftId?: string; details?: any }>({ open: false })
@@ -32,6 +32,7 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
   const [creator, setCreator] = useState<{ open: boolean; start?: string; end?: string; title: string; category: string; description: string; projectId?: string }>({ open:false, title:'', category:'BUILD', description:'', projectId: defaultProjectId })
 
   useEffect(() => {
+    if (!enableDnD) return
     if (!volunteerPaneRef.current) return
     new Draggable(volunteerPaneRef.current, {
       itemSelector: '.vol-chip',
@@ -43,7 +44,7 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
         }
       })
     })
-  }, [])
+  }, [enableDnD])
 
   // Keep local events in sync when parent provides new data
   useEffect(() => { setEvents(initial.events) }, [initial.events])
@@ -122,23 +123,25 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
   }
 
   return (
-    <div className="container" style={{display:'grid', gridTemplateColumns:'1fr 3fr', gap:'1rem'}}>
-      <div>
-        <h3>Volunteers</h3>
-        <div ref={volunteerPaneRef} className="sidebar" style={{maxHeight:'70vh', overflowY:'auto'}}>
-          {initial.volunteers.map(v => (
-            <div key={v.id} className="vol-chip" data-id={v.id} data-name={v.name} data-role={v.primarySkill||''}
-              style={{background: v.familyColor || '#f7f7f7', position:'relative'}}>
-              {drawer.open && (
-                <span title={availSet.has(v.id)?'Available':'Not available'} style={{ position:'absolute', top:6, right:6, width:8, height:8, borderRadius:4, background: availSet.has(v.id)?'#22c55e':'#ef4444' }} />
-              )}
-              <div><strong>{v.name}</strong></div>
-              <div style={{fontSize:'12px'}}>{(v.skills||[]).join(', ')}</div>
-              <div style={{fontSize:'11px',opacity:.7}}>Avail: {v.availSummary}</div>
-            </div>
-          ))}
+    <div className="container" style={{display:'grid', gridTemplateColumns: enableDnD ? '1fr 3fr' : '1fr', gap:'1rem'}}>
+      {enableDnD && (
+        <div>
+          <h3>Volunteers</h3>
+          <div ref={volunteerPaneRef} className="sidebar" style={{maxHeight:'70vh', overflowY:'auto'}}>
+            {initial.volunteers.map(v => (
+              <div key={v.id} className="vol-chip" data-id={v.id} data-name={v.name} data-role={v.primarySkill||''}
+                style={{background: v.familyColor || '#f7f7f7', position:'relative'}}>
+                {drawer.open && (
+                  <span title={availSet.has(v.id)?'Available':'Not available'} style={{ position:'absolute', top:6, right:6, width:8, height:8, borderRadius:4, background: availSet.has(v.id)?'#22c55e':'#ef4444' }} />
+                )}
+                <div><strong>{v.name}</strong></div>
+                <div style={{fontSize:'12px'}}>{(v.skills||[]).join(', ')}</div>
+                <div style={{fontSize:'11px',opacity:.7}}>Avail: {v.availSummary}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       {assignModal.open && (
         <Portal>
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.35)', display:'grid', placeItems:'center', zIndex:2100 }}>
@@ -168,7 +171,7 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
           timeZone="local"
           initialView="timeGridWeek"
           editable
-          droppable
+          droppable={enableDnD}
           selectable
           eventReceive={handleReceive}
           dateClick={(arg:any)=>{ onPickTime?.(arg.date.toISOString()) }}
