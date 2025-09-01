@@ -18,8 +18,9 @@ export default function EventsPage() {
   )
   const [volunteers, setVolunteers] = useState<{ id:string; name:string; skills:string[] }[]>([])
   const [allSkills, setAllSkills] = useState<string[]>([])
+  const [trimByRequiredSkills, setTrimByRequiredSkills] = useState<boolean>(false)
 
-  useEffect(() => { refresh(); fetchProjects(); fetchVolunteers(); fetchSkills() }, [])
+  useEffect(() => { refresh(); fetchProjects(); fetchVolunteers(); fetchSkills(); fetchSettings() }, [])
   useEffect(() => { refresh() }, [filters.projectId, filters.category])
 
   async function fetchProjects() {
@@ -46,6 +47,13 @@ export default function EventsPage() {
     const res = await fetch('/api/skills')
     const data = await res.json()
     setAllSkills((data.skills||[]).map((s:any)=>s.name))
+  }
+  async function fetchSettings() {
+    try {
+      const res = await fetch('/api/settings?keys=requireSkillsForAvailability')
+      const data = await res.json()
+      setTrimByRequiredSkills((data.settings?.requireSkillsForAvailability || 'false') === 'true')
+    } catch {}
   }
   function openAdd() { setForm({ title:'', start:'', end:'', category:'BUILD', projectId: filters.projectId }); setModal({ open:true }) }
   function openEdit(ev: Event) {
@@ -149,7 +157,7 @@ export default function EventsPage() {
                     </div>
                   </div>
                   <div style={{ marginTop:8, display:'flex', gap:6, alignItems:'center' }}>
-                    <AssignForm shiftId={sh.id} initialVolunteers={volunteers} options={Array.from(new Set([...(sh.requirements?.map(r=>r.skill)||[]), ...allSkills]))} onAssign={async (volunteerId, role) => { const res=await fetch('/api/shifts/'+sh.id+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId, role }) }); if(!res.ok){ const d=await res.json().catch(()=>({})); alert(d?.error==='not_available'?'Volunteer not available for this shift': 'Assignment failed'); } await refresh() }} />
+                  <AssignForm trimByRequiredSkills={trimByRequiredSkills} shiftId={sh.id} initialVolunteers={volunteers} options={Array.from(new Set([...(sh.requirements?.map(r=>r.skill)||[]), ...allSkills]))} onAssign={async (volunteerId, role) => { const res=await fetch('/api/shifts/'+sh.id+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId, role }) }); if(!res.ok){ const d=await res.json().catch(()=>({})); alert(d?.error==='not_available'?'Volunteer not available for this shift': 'Assignment failed'); } await refresh() }} />
                   </div>
                 </div>
               ))}
@@ -189,7 +197,7 @@ export default function EventsPage() {
   )
 }
 
-function AssignForm({ shiftId, initialVolunteers, options, onAssign }: { shiftId: string; initialVolunteers: {id:string; name:string; skills:string[]}[]; options: string[]; onAssign: (volunteerId:string, role?:string)=>Promise<void> }) {
+function AssignForm({ shiftId, initialVolunteers, options, onAssign, trimByRequiredSkills = false }: { shiftId: string; initialVolunteers: {id:string; name:string; skills:string[]}[]; options: string[]; onAssign: (volunteerId:string, role?:string)=>Promise<void>; trimByRequiredSkills?: boolean }) {
   const [volunteerId, setVolunteerId] = useState('')
   const [roleList, setRoleList] = useState<string[]>([])
   const [onlyAvail, setOnlyAvail] = useState(true)
@@ -198,7 +206,9 @@ function AssignForm({ shiftId, initialVolunteers, options, onAssign }: { shiftId
   useEffect(() => {
     (async () => {
       if (!onlyAvail) { setList(initialVolunteers); return }
-      const res = await fetch('/api/volunteers?'+new URLSearchParams({ availableForShift: shiftId }))
+      const params = new URLSearchParams({ availableForShift: shiftId })
+      if (trimByRequiredSkills) params.set('requireSkills', 'true')
+      const res = await fetch('/api/volunteers?'+params.toString())
       const data = await res.json()
       setList(data.volunteers || [])
     })()

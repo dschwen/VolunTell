@@ -6,6 +6,7 @@ export default function SettingsPage() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [newSkill, setNewSkill] = useState('')
   const [defaultHours, setDefaultHours] = useState<number>(6)
+  const [trimByRequiredSkills, setTrimByRequiredSkills] = useState<boolean>(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => { refresh() }, [])
@@ -14,12 +15,13 @@ export default function SettingsPage() {
     setLoading(true)
     const [sRes, setRes] = await Promise.all([
       fetch('/api/skills'),
-      fetch('/api/settings?keys=defaultShiftHours')
+      fetch('/api/settings?keys=defaultShiftHours,requireSkillsForAvailability')
     ])
     const sData = await sRes.json(); const stData = await setRes.json()
     setSkills(sData.skills || [])
     const v = Number(stData.settings?.defaultShiftHours || '6')
     setDefaultHours(Number.isFinite(v) && v > 0 ? v : 6)
+    setTrimByRequiredSkills((stData.settings?.requireSkillsForAvailability || 'false') === 'true')
     setLoading(false)
   }
 
@@ -36,6 +38,10 @@ export default function SettingsPage() {
   }
   async function saveDefaultHours() {
     await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ defaultShiftHours: String(defaultHours) }) })
+    alert('Saved')
+  }
+  async function saveAvailabilityTrim() {
+    await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ requireSkillsForAvailability: trimByRequiredSkills ? 'true' : 'false' }) })
     alert('Saved')
   }
 
@@ -65,6 +71,17 @@ export default function SettingsPage() {
               </span>
             ))}
           </div>
+        </section>
+        <section>
+          <h3>Available List Behavior</h3>
+          <label style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <input type='checkbox' checked={trimByRequiredSkills} onChange={e=>setTrimByRequiredSkills(e.target.checked)} />
+            Only show volunteers with at least one required skill
+          </label>
+          <div style={{ marginTop:8 }}>
+            <button onClick={saveAvailabilityTrim} disabled={loading}>Save</button>
+          </div>
+          <div style={{ fontSize:12, opacity:.7 }}>Affects the “Available volunteers” lists in Calendar and Events.</div>
         </section>
       </div>
     </div>

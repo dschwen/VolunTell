@@ -9,11 +9,12 @@ export default function CalendarPage() {
   const [filters, setFilters] = useState<{ projectId?: string; category?: string; onlyAvail?: boolean; at?: string }>({ onlyAvail: false, at: '' })
   const [initial, setInitial] = useState({ events: [], volunteers: [] } as any)
   const [defaultHours, setDefaultHours] = useState<number>(6)
+  const [trimByRequiredSkills, setTrimByRequiredSkills] = useState<boolean>(false)
   const categories = ['BUILD','RESTORE','RENOVATION']
 
-  useEffect(() => { fetchProjects(); fetchDefaultHours() }, [])
+  useEffect(() => { fetchProjects(); fetchSettings() }, [])
   useEffect(() => {
-    const onVis = () => { if (document.visibilityState === 'visible') fetchDefaultHours() }
+    const onVis = () => { if (document.visibilityState === 'visible') fetchSettings() }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
@@ -59,12 +60,13 @@ export default function CalendarPage() {
   }
 
 
-  async function fetchDefaultHours() {
+  async function fetchSettings() {
     try {
-      const res = await fetch('/api/settings?keys=defaultShiftHours')
+      const res = await fetch('/api/settings?keys=defaultShiftHours,requireSkillsForAvailability')
       const data = await res.json()
       const v = Number(data.settings?.defaultShiftHours || '6')
       setDefaultHours(Number.isFinite(v) && v > 0 ? v : 6)
+      setTrimByRequiredSkills((data.settings?.requireSkillsForAvailability || 'false') === 'true')
     } catch {}
   }
 
@@ -83,7 +85,7 @@ export default function CalendarPage() {
         <input type='datetime-local' value={filters.at || ''} onChange={e=>setFilters(f=>({ ...f, at: e.target.value }))} />
       </label>
       <button onClick={refresh}>Refresh</button>
-      <button onClick={fetchDefaultHours}>Sync Settings</button>
+      <button onClick={fetchSettings}>Sync Settings</button>
       <div style={{ marginLeft:'auto', fontSize:12, opacity:.7 }}>Default shift: {defaultHours}h (global setting)</div>
     </div>
   ), [filters, projects, defaultHours])
@@ -106,7 +108,7 @@ export default function CalendarPage() {
           await fetch('/api/events/'+data.event.id+'/shifts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start: startIso, end: endIso, description }) })
         }
         await refresh()
-      }} />
+      }} trimByRequiredSkills={trimByRequiredSkills} />
     </div>
   )
 }

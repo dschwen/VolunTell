@@ -5,19 +5,36 @@ import { availableOnWeekday, availableForRange } from '../../../lib/availability
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method === 'GET') {
-      const { skill, active, availableAt, availableForShift } = req.query
+      const { skill, active, availableAt, availableForShift, requireSkills } = req.query
       const where: any = {}
       if (typeof skill === 'string') where.skills = { has: skill }
       if (typeof active === 'string') where.isActive = active === 'true'
       // For availableForShift, we need availability + blackouts and conflict check
       const volunteers = await prisma.volunteer.findMany({ where, include: { availability: true, blackouts: true, family: true } })
       if (typeof availableForShift === 'string') {
-        const shift = await prisma.shift.findUnique({ where: { id: availableForShift }, include: { signups: { where: { status: 'confirmed' } } } })
+        const shift = await prisma.shift.findUnique({ where: { id: availableForShift }, include: { signups: { where: { status: 'confirmed' } }, requirements: true } })
         if (!shift) return res.status(404).json({ error: 'shift_not_found' })
         // Build set of volunteers with overlapping confirmed signups
         const conflicts = await prisma.signup.findMany({ where: { status: 'confirmed', shift: { start: { lt: shift.end }, end: { gt: shift.start } } }, select: { volunteerId: true } })
         const conflictSet = new Set(conflicts.map(c => c.volunteerId))
-        const filtered = volunteers.filter(v => !conflictSet.has(v.id) && availableForRange(shift.start, shift.end, v.availability, v.blackouts))
+        const reqSkills = Array.from(new Set((shift.requirements || []).map(r => r.skill)))
+        let mustMatchSkills = false
+        if (typeof requireSkills === 'string') {
+          mustMatchSkills = requireSkills === 'true' && reqSkills.length > 0
+        } else {
+          // Fallback to global setting if not specified
+          const row = await prisma.appSetting.findUnique({ where: { key: 'requireSkillsForAvailability' } })
+          mustMatchSkills = (row?.value === 'true') && reqSkills.length > 0
+        }
+        const filtered = volunteers.filter(v => {
+          if (conflictSet.has(v.id)) return false
+          if (!availableForRange(shift.start, shift.end, v.availability, v.blackouts)) return false
+          if (mustMatchSkills) {
+            const skills = v.skills || []
+            if (!skills.some((s: string) => reqSkills.includes(s))) return false
+          }
+          return true
+        })
         return res.status(200).json({ volunteers: filtered })
       }
       let filtered = volunteers

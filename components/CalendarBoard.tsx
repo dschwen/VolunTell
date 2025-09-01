@@ -20,7 +20,7 @@ type EventItem = {
   }
 }
 
-export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh, defaultShiftHours = 6, projects = [], defaultProjectId }: { initial: { events: EventItem[]; volunteers: Volunteer[] }, onPickTime?: (iso: string) => void, onCreate?: (opts: { start: string; end: string; title: string; category: string; description?: string; projectId?: string }) => Promise<void>, onRefresh?: () => void | Promise<void>, defaultShiftHours?: number, projects?: { id: string; name: string }[], defaultProjectId?: string }) {
+export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh, defaultShiftHours = 6, projects = [], defaultProjectId, trimByRequiredSkills = false }: { initial: { events: EventItem[]; volunteers: Volunteer[] }, onPickTime?: (iso: string) => void, onCreate?: (opts: { start: string; end: string; title: string; category: string; description?: string; projectId?: string }) => Promise<void>, onRefresh?: () => void | Promise<void>, defaultShiftHours?: number, projects?: { id: string; name: string }[], defaultProjectId?: string, trimByRequiredSkills?: boolean }) {
   const [events, setEvents] = useState<EventItem[]>(initial.events)
   const volunteerPaneRef = useRef<HTMLDivElement>(null)
   const [drawer, setDrawer] = useState<{ open: boolean; shiftId?: string; details?: any }>({ open: false })
@@ -103,9 +103,11 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
     const data = await res.json()
     setDrawer({ open: true, shiftId, details: data.shift })
     try {
+      const params = new URLSearchParams({ availableForShift: shiftId })
+      if (trimByRequiredSkills) params.set('requireSkills', 'true')
       const [sres, avres] = await Promise.all([
         fetch('/api/skills'),
-        fetch('/api/volunteers?' + new URLSearchParams({ availableForShift: shiftId }))
+        fetch('/api/volunteers?' + params.toString())
       ])
       const sdata = await sres.json()
       setSkillOptions((sdata.skills||[]).map((s:any)=>s.name))
