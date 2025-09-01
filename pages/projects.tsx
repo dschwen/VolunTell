@@ -68,7 +68,7 @@ export default function ProjectsPage() {
 
       {modal.open && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center' }}>
-          <div style={{ background:'#fff', padding:16, borderRadius:8, width:420 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:560, maxWidth:'90vw' }}>
             <h3>{modal.editing ? 'Edit Project' : 'Add Project'}</h3>
             <div style={{ display:'grid', gap:8, marginTop:8 }}>
               <input placeholder="Name" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
@@ -85,4 +85,3 @@ export default function ProjectsPage() {
     </div>
   )
 }
-

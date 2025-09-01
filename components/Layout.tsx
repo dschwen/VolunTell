@@ -6,7 +6,8 @@ const tabs = [
   { href: '/', label: 'Calendar' },
   { href: '/events', label: 'Events' },
   { href: '/projects', label: 'Projects' },
-  { href: '/volunteers', label: 'Volunteers' }
+  { href: '/volunteers', label: 'Volunteers' },
+  { href: '/settings', label: 'Settings' }
 ]
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -36,4 +37,3 @@ export default function Layout({ children }: { children: ReactNode }) {
     </div>
   )
 }
-

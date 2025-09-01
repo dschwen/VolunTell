@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import TagMultiSelect from '../components/TagMultiSelect'
 
 type Project = { id: string; name: string }
 type Signup = { id: string; volunteerId: string; role?: string; status: string; volunteer?: { name: string } }
@@ -16,8 +17,9 @@ export default function EventsPage() {
     { title:'', start:'', end:'', category:'BUILD' }
   )
   const [volunteers, setVolunteers] = useState<{ id:string; name:string; skills:string[] }[]>([])
+  const [allSkills, setAllSkills] = useState<string[]>([])
 
-  useEffect(() => { refresh(); fetchProjects(); fetchVolunteers() }, [])
+  useEffect(() => { refresh(); fetchProjects(); fetchVolunteers(); fetchSkills() }, [])
   useEffect(() => { refresh() }, [filters.projectId, filters.category])
 
   async function fetchProjects() {
@@ -40,6 +42,11 @@ export default function EventsPage() {
     const data = await res.json()
     setVolunteers((data.volunteers||[]).map((v:any)=>({ id:v.id, name:v.name, skills:v.skills||[] })))
   }
+  async function fetchSkills() {
+    const res = await fetch('/api/skills')
+    const data = await res.json()
+    setAllSkills((data.skills||[]).map((s:any)=>s.name))
+  }
   function openAdd() { setForm({ title:'', start:'', end:'', category:'BUILD', projectId: filters.projectId }); setModal({ open:true }) }
   function openEdit(ev: Event) {
     setForm({ title: ev.title, start: ev.start.slice(0,16), end: ev.end.slice(0,16), category: ev.category, projectId: ev.projectId })
@@ -48,9 +55,11 @@ export default function EventsPage() {
   async function submit() {
     const payload = { ...form, start: form.start, end: form.end }
     if (!modal.editing) {
-      await fetch('/api/events', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      const payloadIso = { ...payload, start: new Date(payload.start).toISOString(), end: new Date(payload.end).toISOString() }
+      await fetch('/api/events', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payloadIso) })
     } else {
-      await fetch('/api/events/'+modal.editing.id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+      const payloadIso = { ...payload, start: payload.start ? new Date(payload.start).toISOString() : undefined, end: payload.end ? new Date(payload.end).toISOString() : undefined }
+      await fetch('/api/events/'+modal.editing.id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payloadIso) })
     }
     setModal({ open:false })
     await refresh()
@@ -115,11 +124,11 @@ export default function EventsPage() {
                       <span style={{ fontWeight:600 }}>Shift</span>: {new Date(sh.start).toLocaleString()} → {new Date(sh.end).toLocaleString()}
                     </div>
                     <div>
-                      <button onClick={async()=>{ const start = prompt('New start (YYYY-MM-DDTHH:mm)', sh.start.slice(0,16)); if(!start) return; const end = prompt('New end (YYYY-MM-DDTHH:mm)', sh.end.slice(0,16)); if(!end) return; await fetch('/api/shifts/'+sh.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start, end }) }); await refresh() }}>Edit</button>{' '}
+                      <button onClick={async()=>{ const start = prompt('New start (YYYY-MM-DDTHH:mm)', sh.start.slice(0,16)); if(!start) return; const end = prompt('New end (YYYY-MM-DDTHH:mm)', sh.end.slice(0,16)); if(!end) return; await fetch('/api/shifts/'+sh.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end).toISOString() }) }); await refresh() }}>Edit</button>{' '}
                       <button onClick={async()=>{ if(!confirm('Delete this shift?')) return; await fetch('/api/shifts/'+sh.id,{ method:'DELETE' }); await refresh() }}>Delete</button>
                     </div>
                   </div>
-                  <RequirementsEditor shiftId={sh.id} requirements={sh.requirements} countsBySkill={Object.fromEntries((sh.requirements||[]).map(r=>[r.skill, sh.signups.filter(s=>s.role===r.skill).length]))} onChanged={refresh} />
+                  <RequirementsEditor options={allSkills} shiftId={sh.id} requirements={sh.requirements} countsBySkill={Object.fromEntries((sh.requirements||[]).map(r=>[r.skill, sh.signups.filter(s=>s.role===r.skill).length]))} onChanged={refresh} />
                   <div style={{ marginTop:6 }}>
                     <div style={{ fontSize:13, opacity:.8, marginBottom:4 }}>Assigned volunteers</div>
                     <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
@@ -140,7 +149,7 @@ export default function EventsPage() {
                     </div>
                   </div>
                   <div style={{ marginTop:8, display:'flex', gap:6, alignItems:'center' }}>
-                    <AssignForm volunteers={volunteers} onAssign={async (volunteerId, role) => { await fetch('/api/shifts/'+sh.id+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId, role }) }); await refresh() }} roles={Array.from(new Set(sh.requirements?.map(r=>r.skill)))} />
+                    <AssignForm volunteers={volunteers} options={Array.from(new Set([...(sh.requirements?.map(r=>r.skill)||[]), ...allSkills]))} onAssign={async (volunteerId, role) => { await fetch('/api/shifts/'+sh.id+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId, role }) }); await refresh() }} />
                   </div>
                 </div>
               ))}
@@ -151,7 +160,7 @@ export default function EventsPage() {
 
       {modal.open && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center' }}>
-          <div style={{ background:'#fff', padding:16, borderRadius:8, width:520 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:680, maxWidth:'90vw' }}>
             <h3>{modal.editing ? 'Edit Event' : 'Add Event'}</h3>
             <div style={{ display:'grid', gap:8, marginTop:8 }}>
               <input placeholder="Title" value={form.title} onChange={e=>setForm({...form, title:e.target.value})} />
@@ -232,7 +241,7 @@ function AddShiftForm({ eventId, onAdded }: { eventId: string; onAdded: ()=>void
       <label>Start <input type='datetime-local' value={start} onChange={e=>setStart(e.target.value)} /></label>
       <label>End <input type='datetime-local' value={end} onChange={e=>setEnd(e.target.value)} /></label>
       <input placeholder='Description' value={description} onChange={e=>setDescription(e.target.value)} />
-      <button disabled={!start || !end} onClick={async()=>{ await fetch('/api/events/'+eventId+'/shifts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start, end, description }) }); setOpen(false); setStart(''); setEnd(''); setDescription(''); onAdded() }}>Create</button>
+      <button disabled={!start || !end} onClick={async()=>{ await fetch('/api/events/'+eventId+'/shifts',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end).toISOString(), description }) }); setOpen(false); setStart(''); setEnd(''); setDescription(''); onAdded() }}>Create</button>
       <button onClick={()=>{ setOpen(false); setStart(''); setEnd(''); setDescription('') }}>Cancel</button>
     </div>
   )

@@ -19,11 +19,11 @@ type EventItem = {
   }
 }
 
-export default function CalendarBoard({ initial, onPickTime, onCreate }: { initial: { events: EventItem[]; volunteers: Volunteer[] }, onPickTime?: (iso: string) => void, onCreate?: (opts: { start: string; end: string; title: string; category: string; description?: string }) => Promise<void> }) {
+export default function CalendarBoard({ initial, onPickTime, onCreate, defaultShiftHours = 6, projects = [], defaultProjectId }: { initial: { events: EventItem[]; volunteers: Volunteer[] }, onPickTime?: (iso: string) => void, onCreate?: (opts: { start: string; end: string; title: string; category: string; description?: string; projectId?: string }) => Promise<void>, defaultShiftHours?: number, projects?: { id: string; name: string }[], defaultProjectId?: string }) {
   const [events, setEvents] = useState<EventItem[]>(initial.events)
   const volunteerPaneRef = useRef<HTMLDivElement>(null)
   const [drawer, setDrawer] = useState<{ open: boolean; shiftId?: string; details?: any }>({ open: false })
-  const [creator, setCreator] = useState<{ open: boolean; start?: string; end?: string; title: string; category: string; description: string }>({ open:false, title:'', category:'BUILD', description:'' })
+  const [creator, setCreator] = useState<{ open: boolean; start?: string; end?: string; title: string; category: string; description: string; projectId?: string }>({ open:false, title:'', category:'BUILD', description:'', projectId: defaultProjectId })
 
   useEffect(() => {
     if (!volunteerPaneRef.current) return
@@ -101,13 +101,14 @@ export default function CalendarBoard({ initial, onPickTime, onCreate }: { initi
       <div>
         <FullCalendar
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          timeZone="local"
           initialView="timeGridWeek"
           editable
           droppable
           selectable
           eventReceive={handleReceive}
           dateClick={(arg:any)=>{ onPickTime?.(arg.date.toISOString()) }}
-          select={(sel:any)=>{ if(!onCreate) return; setCreator({ open:true, start: sel.startStr, end: sel.endStr, title:'', category:'BUILD', description:'' }) }}
+          select={(sel:any)=>{ if(!onCreate) return; const pad=(n:number)=>String(n).padStart(2,'0'); const toLocal=(d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; const hours=Number(defaultShiftHours)||6; const startLocal = toLocal(sel.start); const endLocal = toLocal(new Date(sel.start.getTime()+hours*60*60*1000)); setCreator({ open:true, start: startLocal, end: endLocal, title:'', category:'BUILD', description:'', projectId: defaultProjectId }) }}
           eventClick={async (arg:any)=>{ const d = arg.event.start; if(d) onPickTime?.(d.toISOString()); await openRoster(arg.event.extendedProps.shiftId) }}
           eventContent={eventContent as any}
           events={events as any}
@@ -117,7 +118,7 @@ export default function CalendarBoard({ initial, onPickTime, onCreate }: { initi
       {creator.open && (
         <Portal>
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center', zIndex:2000 }}>
-          <div style={{ background:'#fff', padding:16, borderRadius:8, width:520, boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:720, maxWidth:'90vw', boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
             <h3>Create Event + Shift</h3>
             <div style={{ display:'grid', gap:8 }}>
               <label>Start <input type='datetime-local' value={creator.start?.slice(0,16) || ''} onChange={e=>setCreator(c=>({...c, start:e.target.value}))} /></label>
@@ -130,11 +131,17 @@ export default function CalendarBoard({ initial, onPickTime, onCreate }: { initi
                   <option value='RENOVATION'>RENOVATION</option>
                 </select>
               </label>
+              <label>Project
+                <select value={creator.projectId || ''} onChange={e=>setCreator(c=>({...c, projectId: e.target.value || undefined}))}>
+                  <option value=''>—</option>
+                  {(projects||[]).map((p:any)=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+                </select>
+              </label>
               <input placeholder='Shift description (optional)' value={creator.description} onChange={e=>setCreator(c=>({...c, description:e.target.value}))} />
             </div>
             <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
-              <button onClick={()=>setCreator({ open:false, title:'', category:'BUILD', description:'' })}>Cancel</button>
-              <button disabled={!creator.start || !creator.end || !creator.title} onClick={async()=>{ await onCreate!({ start: creator.start!, end: creator.end!, title: creator.title, category: creator.category, description: creator.description || undefined }); setCreator({ open:false, title:'', category:'BUILD', description:'' }) }}>Create</button>
+              <button onClick={()=>setCreator({ open:false, title:'', category:'BUILD', description:'', projectId: undefined })}>Cancel</button>
+              <button disabled={!creator.start || !creator.end || !creator.title} onClick={async()=>{ await onCreate!({ start: creator.start!, end: creator.end!, title: creator.title, category: creator.category, description: creator.description || undefined, projectId: creator.projectId }); setCreator({ open:false, title:'', category:'BUILD', description:'', projectId: undefined }) }}>Create</button>
             </div>
           </div>
         </div>
@@ -144,7 +151,7 @@ export default function CalendarBoard({ initial, onPickTime, onCreate }: { initi
       {drawer.open && drawer.details && (
         <Portal>
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.3)', display:'grid', placeItems:'center', zIndex:2000 }}>
-          <div style={{ background:'#fff', padding:16, borderRadius:8, width:560, maxHeight:'80vh', overflow:'auto', boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:720, maxWidth:'90vw', maxHeight:'80vh', overflow:'auto', boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               <h3>Roster – {drawer.details.event?.title}</h3>
               <button onClick={()=>setDrawer({ open:false })}>Close</button>

@@ -32,7 +32,14 @@ async function main() {
     { shiftId: sh.id, skill: 'paint', minCount: 1 }
   ]})
   await prisma.signup.create({ data: { shiftId: sh.id, volunteerId: v1.id, role:'carpentry', status:'confirmed' } })
+
+  // Skills
+  const skills = ['carpentry','paint','concrete','plumbing','electrical']
+  for (const s of skills) {
+    await prisma.skill.upsert({ where: { name: s }, update: {}, create: { name: s } })
+  }
+  // Settings
+  await prisma.appSetting.upsert({ where: { key: 'defaultShiftHours' }, update: { value: '6' }, create: { key: 'defaultShiftHours', value: '6' } })
 }
 
 main().catch(e => { console.error(e); process.exit(1) }).finally(async () => { await prisma.$disconnect() })
-

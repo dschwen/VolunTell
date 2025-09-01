@@ -13,11 +13,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (typeof from === 'string') where.start.gte = new Date(from)
         if (typeof to === 'string') where.start.lte = new Date(to)
       }
-      const events = await prisma.event.findMany({
+      const eventsRaw = await prisma.event.findMany({
         where,
         orderBy: { start: 'asc' },
         include: { project: true, shifts: { include: { requirements: true, signups: { include: { volunteer: true } } } } }
       })
+      const toLocal = (d: Date) => {
+        const ms = d.getTime() - d.getTimezoneOffset() * 60000
+        return new Date(ms).toISOString().slice(0, 16)
+      }
+      const events = eventsRaw.map(ev => ({
+        ...ev,
+        start: ev.start.toISOString(),
+        end: ev.end.toISOString(),
+        startTs: ev.start.getTime(),
+        endTs: ev.end.getTime(),
+        startLocal: toLocal(ev.start),
+        endLocal: toLocal(ev.end),
+        shifts: ev.shifts.map(sh => ({
+          ...sh,
+          start: sh.start.toISOString(),
+          end: sh.end.toISOString(),
+          startTs: sh.start.getTime(),
+          endTs: sh.end.getTime(),
+          startLocal: toLocal(sh.start),
+          endLocal: toLocal(sh.end)
+        }))
+      }))
       return res.status(200).json({ events })
     }
     if (req.method === 'POST') {
