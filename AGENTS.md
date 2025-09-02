@@ -23,6 +23,99 @@ This document instructs an AI coding agent to implement a small, self‑hostable
 
 ---
 
+## Current Design (2025-09)
+
+This app is now feature‑complete for an MVP with availability/blackout enforcement, skills‑based requirements, calendar assignment UX, and useful coordinator controls.
+
+- Models: Project, Event (with category enum), Shift, Requirement, Volunteer, Availability, Blackout, Signup, Attendance, Task, Skill, Family, AppSetting, User.
+- Availability logic: Local wall‑time comparisons; volunteers with no availability windows are considered available unless blocked by blackouts; cross‑midnight shifts handled by splitting across days; optional legacy fallback to UTC weekday windows via setting.
+- Double‑booking prevention: Server disallows overlapping confirmed signups.
+- Skills: Requirements are per‑shift; assignment UI limits roles to intersection of required skills ∩ volunteer skills.
+- Calendar: FullCalendar with quota meters per required skill. Optional drag‑and‑drop assignment sidebar (toggleable in Settings). Roster drawer supports requirements editing, assignment, and attendance.
+- Volunteers UX: List, add/edit, activate/deactivate, hard delete. Manage availability windows (weekday+time) and blackouts (weekday or specific date+time).
+- Settings: Default shift hours; skills management; “require skills” toggle for available lists; legacy UTC availability fallback; enable/disable calendar drag‑and‑drop.
+- Reports: CSV for hours.
+
+Key conventions and behaviors:
+- Timezone: All availability/blackout matching uses local weekday and HH:mm. Specific‑date blackouts compare local Y‑M‑D.
+- Cross‑midnight: Shifts spanning midnight are split into [start..23:59] and [00:00..end]; available if either segment overlaps a volunteer window and no blackout overlaps either segment.
+- Signup uniqueness: `(volunteerId, shiftId)` unique.
+- Cascading deletes: Implemented in API transactions for event/shift removal; hard volunteer delete also removes related availability, blackouts, signups, attendance, tasks.
+
+---
+
+## API Additions & Flags
+
+- GET `/api/volunteers`
+  - Filters: `skill`, `active`, `availableAt=ISO` (1h window), `availableForShift=:shiftId`
+  - Flags:
+    - `requireSkills=true` → when used with `availableForShift`, returns only volunteers whose skills intersect the shift’s required skills.
+    - `debug=true` → returns `debug.excluded[]` with reasons and context for unavailable volunteers.
+- POST `/api/shifts/:id/assign`
+  - Body: `{ volunteerId, role?, force? }` — availability and double‑book enforced unless `force`.
+- Settings (`/api/settings`)
+  - Keys: `defaultShiftHours`, `requireSkillsForAvailability`, `allowUtcLegacyAvailability`, `enableCalendarDnD`.
+
+Debug payload (when `debug=true` with `availableForShift`):
+- `debug.excluded[]`: `{ id, name, reasons[], conflict?, availabilityContext, availability, blackouts, skills }`
+  - Reasons: `outside_availability`, `blackout_weekday`, `blackout_date`, `double_booked`, `missing_required_skill`.
+  - `availabilityContext`: `{ weekday, utcWeekday, startTime, endTime, startTimeUTC, endTimeUTC, startYMD, endYMD, localOverlap, utcOverlap, windowsLocal[], windowsUTC[] }`.
+
+---
+
+## Frontend UX Summary
+
+- Calendar
+  - Quota meters show filled/required per skill.
+  - Click shift → roster drawer with: requirements editor, available volunteers list (respects settings), assignment (role limited to required ∩ volunteer skills), attendance quick actions.
+  - Drag‑and‑drop (optional): drag chips onto an existing shift bar.
+    - If no role selected on chip, shows compact dropdown of required ∩ volunteer skills.
+    - If no intersection or unavailable/double‑booked, shows a small toast with the reason and fails gracefully.
+    - Toggle via Settings: `enableCalendarDnD`.
+- Events page
+  - Shift management (create/edit/delete), requirements inline editor, assign form with “Only available” toggle and role intersection filtering.
+- Volunteers page
+  - List/search/filter by skill; add/edit with chips‑based skills input; manage availability/blackouts; deactivate/reactivate; hard delete.
+- Settings
+  - Default shift length; skills management; toggles: trim available list by required skills; legacy UTC fallback; calendar DnD.
+
+---
+
+## Time & Availability Rules (Details)
+
+- Matching uses local time by default: `getDay()` and `HH:mm` for comparisons; specific‑date blackouts compare local Y‑M‑D.
+- No availability windows → treated as available unless a blackout overlaps.
+- Cross‑midnight: considered available if either segment overlaps an availability window on its corresponding weekday; any blackout overlapping either segment blocks availability.
+- Optional legacy UTC fallback: When `allowUtcLegacyAvailability=true`, endpoints fall back to UTC weekday/HH:mm when local matching fails (useful for very early data created before the local‑time standardization).
+
+---
+
+## Next Steps (Suggestions)
+
+- UX polish
+  - Add tooltip/empty‑state hint on shift bars for DnD (“Drop volunteers here to assign”).
+  - Replace alerts with unified toast system across pages (success/warn/error variants).
+  - Restrict the “Assigned” role dropdown to volunteer skills (currently lists shift‑required skills unfiltered on edit).
+  - Live‑refresh the calendar tile meters immediately after requirement edits (not only on drawer close).
+
+- Data & integrity
+  - Consider Prisma `onDelete: Cascade` for related rows to simplify transactional deletes implemented in API.
+  - One‑click “UTC→Local” availability remap for legacy windows on a volunteer.
+
+- Features
+  - Recurring events/shifts; templates for common requirement sets.
+  - Bulk assignment helpers (fill by skill, fill to min quotas).
+  - Conflict indicators in calendar (icons for under‑filled, conflicts, blackouts).
+  - Export/import volunteers via CSV.
+
+- Performance/tests
+  - Add unit tests for `lib/availability.ts` edge cases (cross‑midnight, blackouts, legacy fallback).
+  - Add API integration tests for assign/double‑book flow and volunteers filter flags.
+
+---
+
+---
+
 ## 1) Tech Stack
 
 - **Frontend:** Next.js (React), FullCalendar (`@fullcalendar/react`, `daygrid`, `timegrid`, `interaction`).
@@ -34,139 +127,6 @@ This document instructs an AI coding agent to implement a small, self‑hostable
 - **Containerization:** Docker Compose for app, db, and adminer; production build in multi‑stage Dockerfile.
 - **Testing:** Vitest + Playwright smoke tests.
 - **Formatting/CI:** ESLint, Prettier, simple GitHub Actions workflow (optional).
-
----
-
-## 2) Domain Model (Prisma)
-
-> File: `prisma/schema.prisma`
-
-```prisma
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model Family {
-  id        String      @id @default(cuid())
-  name      String
-  colorTag  String?
-  notes     String?
-  volunteers Volunteer[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-}
-
-model Volunteer {
-  id           String        @id @default(cuid())
-  family       Family?       @relation(fields: [familyId], references: [id])
-  familyId     String?
-  name         String
-  email        String?       @unique
-  phone        String?
-  skills       String[]
-  notes        String?
-  isActive     Boolean       @default(true)
-  availability Availability[]
-  signups      Signup[]
-  attendance   Attendance[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-}
-
-model Availability {
-  id           String     @id @default(cuid())
-  volunteer    Volunteer  @relation(fields: [volunteerId], references: [id])
-  volunteerId  String
-  weekday      Int        // 0=Sun … 6=Sat
-  startTime    String     // '08:00'
-  endTime      String     // '15:30'
-}
-
-model Event {
-  id        String   @id @default(cuid())
-  title     String
-  location  String?
-  start     DateTime
-  end       DateTime
-  notes     String?
-  shifts    Shift[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-}
-
-model Shift {
-  id          String        @id @default(cuid())
-  event       Event         @relation(fields: [eventId], references: [id])
-  eventId     String
-  start       DateTime
-  end         DateTime
-  description String?
-  requirements Requirement[]
-  signups     Signup[]
-  attendance  Attendance[]
-}
-
-model Requirement {
-  id       String  @id @default(cuid())
-  shift    Shift   @relation(fields: [shiftId], references: [id])
-  shiftId  String
-  skill    String
-  minCount Int
-}
-
-model Signup {
-  id          String     @id @default(cuid())
-  shift       Shift      @relation(fields: [shiftId], references: [id])
-  shiftId     String
-  volunteer   Volunteer  @relation(fields: [volunteerId], references: [id])
-  volunteerId String
-  role        String?
-  status      String     // invited|interested|confirmed|declined|waitlist
-  comment     String?
-  createdAt   DateTime   @default(now())
-}
-
-model Attendance {
-  id          String     @id @default(cuid())
-  shift       Shift      @relation(fields: [shiftId], references: [id])
-  shiftId     String
-  volunteer   Volunteer  @relation(fields: [volunteerId], references: [id])
-  volunteerId String
-  status      String     // present|no_show|partial|cancelled
-  hours       Decimal?   @db.Numeric(5, 2)
-  checkinTs   DateTime?
-  checkoutTs  DateTime?
-  createdAt   DateTime   @default(now())
-}
-
-model Task {
-  id          String    @id @default(cuid())
-  volunteer   Volunteer? @relation(fields: [volunteerId], references: [id])
-  volunteerId String?
-  event       Event?    @relation(fields: [eventId], references: [id])
-  eventId     String?
-  dueDate     DateTime?
-  type        String    // call|remind|ask|followup
-  notes       String?
-  status      String    // open|done
-  createdAt   DateTime  @default(now())
-}
-
-model User {
-  id       String   @id @default(cuid())
-  email    String   @unique
-  password String
-  role     String   // 'coordinator'|'volunteer'
-  createdAt DateTime @default(now())
-}
-```
-
-Seed minimal data in `prisma/seed.ts` (families, volunteers, events, a couple shifts and requirements).
 
 ---
 
@@ -529,6 +489,184 @@ Create 3 families (color tagged), ~12 volunteers with mixed skills & availabilit
 - Add `Makefile` targets for common tasks (optional).
 
 ---
+
+## 16b) Updated Prisma Schema (source of truth)
+
+The schema below mirrors `prisma/schema.prisma` and supersedes any earlier example in this document.
+
+```prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EventCategory {
+  RESTORE
+  BUILD
+  RENOVATION
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  colorTag  String?
+  notes     String?
+  events    Event[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Family {
+  id        String      @id @default(cuid())
+  name      String
+  colorTag  String?
+  notes     String?
+  volunteers Volunteer[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model Volunteer {
+  id           String        @id @default(cuid())
+  family       Family?       @relation(fields: [familyId], references: [id])
+  familyId     String?
+  name         String
+  email        String?       @unique
+  phone        String?
+  skills       String[]
+  notes        String?
+  isActive     Boolean       @default(true)
+  availability Availability[]
+  blackouts    Blackout[]
+  signups      Signup[]
+  attendance   Attendance[]
+  tasks        Task[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Availability {
+  id           String     @id @default(cuid())
+  volunteer    Volunteer  @relation(fields: [volunteerId], references: [id])
+  volunteerId  String
+  weekday      Int        // 0=Sun … 6=Sat
+  startTime    String     // '08:00'
+  endTime      String     // '15:30'
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  title     String
+  location  String?
+  start     DateTime
+  end       DateTime
+  notes     String?
+  category  EventCategory @default(BUILD)
+  project   Project?   @relation(fields: [projectId], references: [id])
+  projectId String?
+  shifts    Shift[]
+  tasks     Task[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Shift {
+  id          String        @id @default(cuid())
+  event       Event         @relation(fields: [eventId], references: [id])
+  eventId     String
+  start       DateTime
+  end         DateTime
+  description String?
+  requirements Requirement[]
+  signups     Signup[]
+  attendance  Attendance[]
+}
+
+model Requirement {
+  id       String  @id @default(cuid())
+  shift    Shift   @relation(fields: [shiftId], references: [id])
+  shiftId  String
+  skill    String
+  minCount Int
+}
+
+model Signup {
+  id          String     @id @default(cuid())
+  shift       Shift      @relation(fields: [shiftId], references: [id])
+  shiftId     String
+  volunteer   Volunteer  @relation(fields: [volunteerId], references: [id])
+  volunteerId String
+  role        String?
+  status      String     // invited|interested|confirmed|declined|waitlist
+  comment     String?
+  createdAt   DateTime   @default(now())
+
+  @@unique([volunteerId, shiftId])
+}
+
+model Attendance {
+  id          String     @id @default(cuid())
+  shift       Shift      @relation(fields: [shiftId], references: [id])
+  shiftId     String
+  volunteer   Volunteer  @relation(fields: [volunteerId], references: [id])
+  volunteerId String
+  status      String     // present|no_show|partial|cancelled
+  hours       Decimal?   @db.Decimal(5, 2)
+  checkinTs   DateTime?
+  checkoutTs  DateTime?
+  createdAt   DateTime   @default(now())
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  volunteer   Volunteer? @relation(fields: [volunteerId], references: [id])
+  volunteerId String?
+  event       Event?    @relation(fields: [eventId], references: [id])
+  eventId     String?
+  dueDate     DateTime?
+  type        String    // call|remind|ask|followup
+  notes       String?
+  status      String    // open|done
+  createdAt   DateTime  @default(now())
+}
+
+model User {
+  id       String   @id @default(cuid())
+  email    String   @unique
+  password String
+  role     String   // 'coordinator'|'volunteer'
+  createdAt DateTime @default(now())
+}
+
+// Blackouts represent recurring or specific blocks when a volunteer is unavailable
+model Blackout {
+  id           String     @id @default(cuid())
+  volunteer    Volunteer  @relation(fields: [volunteerId], references: [id])
+  volunteerId  String
+  // Either a specific date (UTC) or a recurring weekday (0=Sun..6=Sat)
+  date         DateTime?
+  weekday      Int?
+  startTime    String     // '08:00'
+  endTime      String     // '15:30'
+  notes        String?
+  createdAt    DateTime   @default(now())
+}
+
+model Skill {
+  id    String @id @default(cuid())
+  name  String @unique
+}
+
+model AppSetting {
+  key   String  @id
+  value String
+  updatedAt DateTime @updatedAt
+}
+```
 
 ## 17) Quickstart for Humans
 
