@@ -8,6 +8,7 @@ type Volunteer = {
   phone?: string
   skills: string[]
   isActive: boolean
+  contactLogs?: { id: string; at: string; method: string; comments?: string }[]
 }
 
 export default function VolunteersPage() {
@@ -15,6 +16,9 @@ export default function VolunteersPage() {
   const [loading, setLoading] = useState(false)
   const [q, setQ] = useState('')
   const [skill, setSkill] = useState('')
+  const [contactDays, setContactDays] = useState<string>('')
+  const [exportFrom, setExportFrom] = useState('')
+  const [exportTo, setExportTo] = useState('')
   const [modal, setModal] = useState<{ open: boolean; editing?: Volunteer }>(() => ({ open: false }))
   const [form, setForm] = useState<{ name: string; email: string; phone: string; skills: string[] }>({ name:'', email:'', phone:'', skills: [] })
   const [allSkills, setAllSkills] = useState<{ id:string; name:string }[]>([])
@@ -23,6 +27,8 @@ export default function VolunteersPage() {
   const [blocks, setBlocks] = useState<any[]>([])
   const [newAvail, setNewAvail] = useState({ weekday: 1, startTime: '08:00', endTime: '17:00' })
   const [newBlock, setNewBlock] = useState({ weekday: 0 as any, date: '', startTime: '00:00', endTime: '23:59', notes: '' })
+  const [contactModal, setContactModal] = useState<{ open: boolean; volunteer?: Volunteer; when: string; method: 'phone'|'email'|'other'; comments: string }>({ open:false, when:'', method:'phone', comments:'' })
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; volunteer?: Volunteer; items: any[] }>({ open:false, items: [] })
   const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
   useEffect(() => { refresh() }, [])
@@ -77,21 +83,69 @@ export default function VolunteersPage() {
     await refresh()
   }
 
-  const filtered = useMemo(() => vols.filter(v => v.name.toLowerCase().includes(q.toLowerCase())), [vols, q])
+  const filtered = useMemo(() => {
+    const term = q.toLowerCase()
+    const days = Number(contactDays)
+    const cutoff = Number.isFinite(days) && days > 0 ? Date.now() - days*24*3600*1000 : null
+    return vols.filter(v => {
+      if (!v.name.toLowerCase().includes(term)) return false
+      if (skill && !(v.skills||[]).some(s => s.toLowerCase().includes(skill.toLowerCase()))) return false
+      if (cutoff != null) {
+        const last = v.contactLogs?.[0]?.at ? new Date(v.contactLogs![0]!.at).getTime() : null
+        if (last == null || last < cutoff) return false
+      }
+      return true
+    })
+  }, [vols, q, skill, contactDays])
+  function lastContactOf(v: Volunteer): string {
+    const at = v.contactLogs?.[0]?.at
+    if (!at) return '—'
+    try { return new Date(at).toLocaleString() } catch { return '—' }
+  }
+  function openContact(v: Volunteer) {
+    const now = new Date()
+    const pad = (n:number)=>String(n).padStart(2,'0')
+    const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
+    setContactModal({ open:true, volunteer: v, when: local, method: 'phone', comments: '' })
+  }
+  async function submitContact() {
+    const v = contactModal.volunteer!
+    const body = { method: contactModal.method, at: new Date(contactModal.when).toISOString(), comments: contactModal.comments || undefined }
+    await fetch(`/api/volunteers/${v.id}/contacts`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+    setContactModal({ open:false, when:'', method:'phone', comments:'' })
+    await refresh()
+  }
+  async function openHistory(v: Volunteer) {
+    const res = await fetch(`/api/volunteers/${v.id}/contacts`)
+    const data = await res.json()
+    setHistoryModal({ open:true, volunteer: v, items: data.items || [] })
+  }
 
   return (
     <div>
       <h1>Volunteers</h1>
-      <div style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
+      <div style={{ display: 'flex', gap: 8, margin: '8px 0', flexWrap:'wrap' }}>
         <input placeholder="Search" value={q} onChange={e=>setQ(e.target.value)} />
         <input placeholder="Filter by skill" value={skill} onChange={e=>setSkill(e.target.value)} />
+        <label>Contacted within (days)
+          <input type='number' min={1} value={contactDays} onChange={e=>setContactDays(e.target.value)} style={{ width:100, marginLeft:6 }} />
+        </label>
         <button onClick={refresh} disabled={loading}>Refresh</button>
         <button onClick={openAdd}>Add Volunteer</button>
+        <span style={{ marginLeft:'auto' }} />
+        <label>From <input type='date' value={exportFrom} onChange={e=>setExportFrom(e.target.value)} /></label>
+        <label>To <input type='date' value={exportTo} onChange={e=>setExportTo(e.target.value)} /></label>
+        <button onClick={()=>{
+          const params = new URLSearchParams()
+          if (exportFrom) params.set('from', new Date(exportFrom).toISOString())
+          if (exportTo) { const dt = new Date(exportTo); dt.setHours(23,59,59,999); params.set('to', dt.toISOString()) }
+          window.open('/api/reports/contacts?' + params.toString(), '_blank')
+        }}>Export contacts CSV</button>
       </div>
       <table width="100%" cellPadding={6} style={{ borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ textAlign: 'left', borderBottom: '1px solid #eee' }}>
-            <th>Name</th><th>Email</th><th>Phone</th><th>Skills</th><th>Status</th><th></th>
+            <th>Name</th><th>Email</th><th>Phone</th><th>Skills</th><th>Last contact</th><th>Status</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -101,9 +155,14 @@ export default function VolunteersPage() {
               <td>{v.email}</td>
               <td>{v.phone}</td>
               <td>{(v.skills||[]).join(', ')}</td>
+              <td>
+                {lastContactOf(v)}{' '}
+                <button onClick={()=>openHistory(v)} title='View contact history'>History</button>
+              </td>
               <td>{v.isActive ? 'Active' : 'Inactive'}</td>
               <td style={{ textAlign: 'right', display:'flex', gap:6, justifyContent:'flex-end' }}>
                 <button onClick={() => openEdit(v)}>Edit</button>
+                <button onClick={() => openContact(v)}>Log contact</button>
                 {v.isActive ? (
                   <>
                     <button onClick={() => remove(v)}>Deactivate</button>
@@ -188,6 +247,55 @@ export default function VolunteersPage() {
             <div style={{ display:'flex', gap:8, marginTop:12, justifyContent:'flex-end' }}>
               <button onClick={() => setModal({ open:false })}>Cancel</button>
               <button onClick={submit}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {contactModal.open && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.35)', display:'grid', placeItems:'center', zIndex:3000 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:520, maxWidth:'90vw' }}>
+            <h3>Log contact — {contactModal.volunteer?.name}</h3>
+            <div style={{ display:'grid', gap:8, marginTop:8 }}>
+              <label>Method
+                <select value={contactModal.method} onChange={e=>setContactModal(c=>({ ...c, method: e.target.value as any }))}>
+                  <option value='phone'>by phone</option>
+                  <option value='email'>by email</option>
+                  <option value='other'>other</option>
+                </select>
+              </label>
+              <label>Date/Time
+                <input type='datetime-local' value={contactModal.when} onChange={e=>setContactModal(c=>({ ...c, when: e.target.value }))} />
+              </label>
+              <textarea placeholder='Comments' value={contactModal.comments} onChange={e=>setContactModal(c=>({ ...c, comments: e.target.value }))} rows={3} />
+            </div>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
+              <button onClick={()=>setContactModal({ open:false, when:'', method:'phone', comments:'' })}>Cancel</button>
+              <button onClick={submitContact}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {historyModal.open && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.35)', display:'grid', placeItems:'center', zIndex:3000 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:640, maxWidth:'90vw', maxHeight:'80vh', overflow:'auto' }}>
+            <h3>Contact history — {historyModal.volunteer?.name}</h3>
+            <table width='100%' cellPadding={6} style={{ borderCollapse:'collapse', marginTop:8 }}>
+              <thead><tr style={{ textAlign:'left', borderBottom:'1px solid #eee' }}><th>Date</th><th>Method</th><th>Comments</th></tr></thead>
+              <tbody>
+                {historyModal.items.map((i:any)=>(
+                  <tr key={i.id} style={{ borderBottom:'1px solid #f5f5f5' }}>
+                    <td>{new Date(i.at).toLocaleString()}</td>
+                    <td>{i.method}</td>
+                    <td>{i.comments || '—'}</td>
+                  </tr>
+                ))}
+                {!historyModal.items.length && (<tr><td colSpan={3} style={{ opacity:.7 }}>No contacts logged yet.</td></tr>)}
+              </tbody>
+            </table>
+            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:12 }}>
+              <button onClick={()=>setHistoryModal({ open:false, items: [] })}>Close</button>
             </div>
           </div>
         </div>

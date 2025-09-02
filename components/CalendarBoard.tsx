@@ -104,7 +104,10 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
     if (!role) {
       if (intersect.length === 0) {
         try {
-          const dres = await fetch('/api/volunteers?'+ new URLSearchParams({ availableForShift: shiftId, debug: 'true' }))
+          const dbg = new URLSearchParams()
+          dbg.set('availableForShift', shiftId!)
+          dbg.set('debug', 'true')
+          const dres = await fetch('/api/volunteers?'+ dbg.toString())
           const data = await dres.json()
           const ex = (data?.debug?.excluded||[]).find((x:any)=>x.id===volunteerId)
           if (ex && Array.isArray(ex.reasons)) {

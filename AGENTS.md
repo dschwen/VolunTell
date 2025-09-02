@@ -4,7 +4,7 @@ This document instructs an AI coding agent to implement a small, self‑hostable
 
 ---
 
-## 0) Mission & Outcomes
+## 1) Mission & Outcomes
 
 **Mission:** Build a minimal, reliable tool for a volunteer coordinator to:
 - Maintain a roster of volunteers: contact info, skills, availability, family grouping.
@@ -23,7 +23,7 @@ This document instructs an AI coding agent to implement a small, self‑hostable
 
 ---
 
-## Current Design (2025-09)
+## 2) Current Design (2025-09)
 
 This app is now feature‑complete for an MVP with availability/blackout enforcement, skills‑based requirements, calendar assignment UX, and useful coordinator controls.
 
@@ -44,7 +44,7 @@ Key conventions and behaviors:
 
 ---
 
-## API Additions & Flags
+## 3) API Additions & Flags
 
 - GET `/api/volunteers`
   - Filters: `skill`, `active`, `availableAt=ISO` (1h window), `availableForShift=:shiftId`
@@ -63,7 +63,7 @@ Debug payload (when `debug=true` with `availableForShift`):
 
 ---
 
-## Frontend UX Summary
+## 4) Frontend UX Summary
 
 - Calendar
   - Quota meters show filled/required per skill.
@@ -81,7 +81,7 @@ Debug payload (when `debug=true` with `availableForShift`):
 
 ---
 
-## Time & Availability Rules (Details)
+## 5) Time & Availability Rules (Details)
 
 - Matching uses local time by default: `getDay()` and `HH:mm` for comparisons; specific‑date blackouts compare local Y‑M‑D.
 - No availability windows → treated as available unless a blackout overlaps.
@@ -90,7 +90,7 @@ Debug payload (when `debug=true` with `availableForShift`):
 
 ---
 
-## Next Steps (Suggestions)
+## 6) Next Steps (Suggestions)
 
 - UX polish
   - Add tooltip/empty‑state hint on shift bars for DnD (“Drop volunteers here to assign”).
@@ -107,6 +107,8 @@ Debug payload (when `debug=true` with `availableForShift`):
   - Bulk assignment helpers (fill by skill, fill to min quotas).
   - Conflict indicators in calendar (icons for under‑filled, conflicts, blackouts).
   - Export/import volunteers via CSV.
+  - CSV import for contact logs (map columns like volunteer email/phone, method, timestamp, comments) with preview/deduping.
+  - Extend Volunteer model with address fields (street address, city, state/province, postal code) and include in CSV import/export.
 
 - Performance/tests
   - Add unit tests for `lib/availability.ts` edge cases (cross‑midnight, blackouts, legacy fallback).
@@ -116,7 +118,7 @@ Debug payload (when `debug=true` with `availableForShift`):
 
 ---
 
-## 1) Tech Stack
+## 8) Tech Stack
 
 - **Frontend:** Next.js (React), FullCalendar (`@fullcalendar/react`, `daygrid`, `timegrid`, `interaction`).
 - **Backend:** Next.js API routes (or Express inside Next.js) with TypeScript.
@@ -130,7 +132,7 @@ Debug payload (when `debug=true` with `availableForShift`):
 
 ---
 
-## 3) API (REST, JSON)
+## 9) API (REST, JSON)
 
 All endpoints require coordinator auth for write operations. Pagination is optional for MVP.
 
@@ -178,7 +180,7 @@ All endpoints require coordinator auth for write operations. Pagination is optio
 
 ---
 
-## 4) Interactive Calendar Widget (React)
+## 10) Interactive Calendar Widget (React)
 
 > File: `apps/web/components/CalendarBoard.tsx`
 
@@ -298,7 +300,7 @@ export default function CalendarBoard({ initial }) {
 
 ---
 
-## 5) Docker & Local Dev
+## 7) Docker & Local Dev
 
 **Files to create at repo root:** `docker-compose.yml`, `Dockerfile`, `.env`, `prisma/schema.prisma`, `prisma/seed.ts`.
 
@@ -380,7 +382,7 @@ docker compose exec app npx prisma db seed
 
 ---
 
-## 6) Frontend Pages (MVP)
+## 11) Frontend Pages (MVP)
 
 - `/login` — email/password.
 - `/calendar` — CalendarBoard + side pane of volunteers (filters: skill, availability, family, active).
@@ -394,7 +396,7 @@ docker compose exec app npx prisma db seed
 
 ---
 
-## 7) Availability & Matching
+## 12) Availability & Matching
 
 - Availability stored as day-of-week windows.
 - API endpoint `GET /api/volunteers?availableAt=ISO` returns volunteers whose availability covers the instant or overlaps the shift window.
@@ -402,7 +404,7 @@ docker compose exec app npx prisma db seed
 
 ---
 
-## 8) Tasks Engine (coordinator to‑dos)
+## 13) Tasks Engine (coordinator to‑dos)
 
 - Create tasks manually or auto‑generate when:
   - a shift is under‑filled `< 24–48h` before start → generate “call carpenters” tasks (top N by recency).
@@ -412,7 +414,7 @@ docker compose exec app npx prisma db seed
 
 ---
 
-## 9) Security & Roles
+## 14) Security & Roles
 
 - Users: `coordinator` can do everything; `volunteer` (future) can view own schedule and confirm/decline invites.
 - Auth with NextAuth Credentials provider:
@@ -423,21 +425,61 @@ docker compose exec app npx prisma db seed
 
 ---
 
-## 10) Exports & Reporting
+## 15) Exports & Reporting
 
 - CSV export of hours: columns `[Volunteer, Email, Skill(s), Date, Shift Start, Shift End, Status, Hours]`.
 - Optional aggregated CSV per volunteer and per month.
 
+### 15.1 CSV Import (Contacts & Volunteers)
+
+Define simple, robust CSV import endpoints and a guided UI to map columns and preview results before committing.
+
+- Endpoints (coordinator‑only)
+  - `POST /api/import/contacts?dryRun=true|false`
+    - Body:
+      - Upload: multipart/form‑data with `file`; accept `options` and `mapping` via JSON query param or a sidecar field named `meta` (JSON string).
+      - `mapping`: `{ email, phone, method, at, comments }` → header names in the CSV.
+      - `defaults`: e.g. `{ method: 'phone' }` if column missing.
+      - `options`: `{ timezone?: 'America/New_York', delimiter?: ',', encoding?: 'utf-8' }`.
+      - `dedupe`: `{ strategy: 'exact'|'none', windowMinutes?: 10 }` (exact: skip if same volunteer+method+at; window aggregates near‑dups).
+      - Identification: volunteers linked by `email` first, else `phone`. Unmatched rows are reported and skipped (for now).
+    - Response (dryRun=true): `{ preview: { total, matched, unmatched, duplicates, rows: [{ idx, matchedVolunteer?: { id, name }, normalized: { method, atISO, comments }, issues: string[] }] } }`.
+    - Response (dryRun=false): `{ imported, duplicates, unmatched, errors: string[] }`.
+  - `POST /api/import/volunteers?dryRun=true|false`
+    - `mapping`: `{ name, email, phone, skills, street, city, state, postal }`.
+    - Behavior: upsert by `email`. If exists → update phone/skills/address (merge/dedupe skills). If not → create `isActive=true`.
+    - Response mirrors contacts import; includes `{ created, updated }` counts.
+
+- Accepted CSV formats
+  - Header row required. Delimiter default `,`, quote `"`, escape `""`, CRLF/LF.
+  - Timestamps for `at`: ISO‑8601 preferred; allow common local formats when `options.timezone` is provided.
+  - `method`: one of `phone|email|other` (case‑insensitive).
+
+- UI flow
+  - Volunteers page → “Import CSV” opens a wizard.
+  - Step 1: Choose import type (Contacts or Volunteers) and upload file.
+  - Step 2: Column mapping (auto‑detect; manual override via select inputs) with 5‑row sample preview.
+  - Step 3: Preview (calls API with `dryRun=true`) — show counts, highlight issues; allow downloading an errors CSV.
+  - Step 4: Confirm import (API with `dryRun=false`) — show summary with created/updated/imported/skipped.
+
+- Address fields (volunteers)
+  - Extend Volunteer with `street`, `city`, `state`, `postal` (and optionally `country`); include in export/import.
+  - During import, do not blank existing fields unless explicitly mapped to an empty value and user opts into “allow clearing”.
+
+- Security & performance
+  - Only coordinators may import. Limit file size (5–10MB). Stream parse to avoid memory spikes.
+  - Simple in‑batch dedupe cache by composite key `(email, method, atISO)` to prevent duplicates within a single upload.
+
 ---
 
-## 11) Tests (smoke)
+## 16) Tests (smoke)
 
 - Unit: services for availability matching and capacity fill calculations (Vitest).
 - E2E: Playwright click‑through: login → create event → add shift → set requirement → drag volunteer → see counters update → mark attendance → export CSV.
 
 ---
 
-## 12) Milestones
+## 17) Milestones
 
 1. **Core DB & API** — Prisma models, REST endpoints, seed.
 2. **Calendar UI** — FullCalendar wired to `/api/calendar`, drag‑drop assignment.
@@ -448,13 +490,13 @@ docker compose exec app npx prisma db seed
 
 ---
 
-## 13) Seed Data
+## 18) Seed Data
 
 Create 3 families (color tagged), ~12 volunteers with mixed skills & availability, 2 events with 3 shifts each, requirements (e.g., carpentry 3, paint 1), a few assignments, and open tasks (call/remind).
 
 ---
 
-## 14) Acceptance Checklist
+## 19) Acceptance Checklist
 
 - [ ] `docker compose up -d` brings up **db**, **adminer**, **app** on ports 5432, 8081, 3000.
 - [ ] `npx prisma migrate dev` and `db seed` run successfully in container.
@@ -467,7 +509,7 @@ Create 3 families (color tagged), ~12 volunteers with mixed skills & availabilit
 
 ---
 
-## 15) Nice‑to‑Have (Post‑MVP)
+## 20) Nice‑to‑Have (Post‑MVP)
 
 - Public self‑signup link per shift with manager approval.
 - Email/SMS reminders (MailHog container for dev; Twilio for prod).
@@ -477,7 +519,7 @@ Create 3 families (color tagged), ~12 volunteers with mixed skills & availabilit
 
 ---
 
-## 16) Notes for the Agent
+## 21) Notes for the Agent
 
 - Prefer simplicity over frameworks sprawl; keep deps minimal.
 - Handle time zones explicitly; store UTC in DB; display in local TZ.
@@ -490,7 +532,7 @@ Create 3 families (color tagged), ~12 volunteers with mixed skills & availabilit
 
 ---
 
-## 16b) Updated Prisma Schema (source of truth)
+## 22) Prisma Schema (source of truth)
 
 The schema below mirrors `prisma/schema.prisma` and supersedes any earlier example in this document.
 
