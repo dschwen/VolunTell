@@ -20,6 +20,8 @@ export default function VolunteersPage() {
   const [exportFrom, setExportFrom] = useState('')
   const [exportTo, setExportTo] = useState('')
   const fileInputId = 'volunteers-import-file'
+  const [sortBy, setSortBy] = useState<'name'|'email'|'phone'|'lastContact'|'status'>('name')
+  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
   const [modal, setModal] = useState<{ open: boolean; editing?: Volunteer }>(() => ({ open: false }))
   const [form, setForm] = useState<{ name: string; email: string; phone: string; skills: string[] }>({ name:'', email:'', phone:'', skills: [] })
   const [allSkills, setAllSkills] = useState<{ id:string; name:string }[]>([])
@@ -88,7 +90,7 @@ export default function VolunteersPage() {
     const term = q.toLowerCase()
     const days = Number(contactDays)
     const cutoff = Number.isFinite(days) && days > 0 ? Date.now() - days*24*3600*1000 : null
-    return vols.filter(v => {
+    const list = vols.filter(v => {
       if (!v.name.toLowerCase().includes(term)) return false
       if (skill && !(v.skills||[]).some(s => s.toLowerCase().includes(skill.toLowerCase()))) return false
       if (cutoff != null) {
@@ -97,7 +99,35 @@ export default function VolunteersPage() {
       }
       return true
     })
-  }, [vols, q, skill, contactDays])
+    const dir = sortDir === 'asc' ? 1 : -1
+    const getLast = (v: Volunteer) => v.contactLogs?.[0]?.at ? new Date(v.contactLogs![0]!.at).getTime() : null
+    return list.sort((a, b) => {
+      switch (sortBy) {
+        case 'name': {
+          return dir * a.name.localeCompare(b.name)
+        }
+        case 'email': {
+          const av = (a.email || '').toLowerCase(); const bv = (b.email || '').toLowerCase()
+          return dir * av.localeCompare(bv)
+        }
+        case 'phone': {
+          const av = (a.phone || ''); const bv = (b.phone || '')
+          return dir * av.localeCompare(bv)
+        }
+        case 'status': {
+          const av = a.isActive ? 0 : 1; const bv = b.isActive ? 0 : 1
+          return dir * (av - bv)
+        }
+        case 'lastContact': {
+          const at = getLast(a); const bt = getLast(b)
+          if (at == null && bt == null) return 0
+          if (at == null) return 1 * (sortDir === 'asc' ? 1 : -1) // nulls last
+          if (bt == null) return -1 * (sortDir === 'asc' ? 1 : -1)
+          return dir * (at - bt)
+        }
+      }
+    })
+  }, [vols, q, skill, contactDays, sortBy, sortDir])
   function lastContactOf(v: Volunteer): string {
     const at = v.contactLogs?.[0]?.at
     if (!at) return '—'
@@ -134,6 +164,16 @@ export default function VolunteersPage() {
         <button onClick={refresh} disabled={loading}>Refresh</button>
         <button onClick={openAdd}>Add Volunteer</button>
         <span style={{ marginLeft:'auto' }} />
+        <label>Sort by
+          <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)} style={{ marginLeft:6 }}>
+            <option value='name'>Name</option>
+            <option value='email'>Email</option>
+            <option value='phone'>Phone</option>
+            <option value='lastContact'>Last contact</option>
+            <option value='status'>Status</option>
+          </select>
+        </label>
+        <button onClick={()=>setSortDir(d=>d==='asc'?'desc':'asc')} title={`Direction: ${sortDir}`}>{sortDir==='asc'?'Asc':'Desc'}</button>
         <input id={fileInputId} type='file' accept='.csv,text/csv' style={{ display:'none' }} onChange={async (e)=>{
           const f = e.target.files?.[0]
           if (!f) return
