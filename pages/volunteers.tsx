@@ -19,6 +19,7 @@ export default function VolunteersPage() {
   const [contactDays, setContactDays] = useState<string>('')
   const [exportFrom, setExportFrom] = useState('')
   const [exportTo, setExportTo] = useState('')
+  const fileInputId = 'volunteers-import-file'
   const [modal, setModal] = useState<{ open: boolean; editing?: Volunteer }>(() => ({ open: false }))
   const [form, setForm] = useState<{ name: string; email: string; phone: string; skills: string[] }>({ name:'', email:'', phone:'', skills: [] })
   const [allSkills, setAllSkills] = useState<{ id:string; name:string }[]>([])
@@ -133,6 +134,18 @@ export default function VolunteersPage() {
         <button onClick={refresh} disabled={loading}>Refresh</button>
         <button onClick={openAdd}>Add Volunteer</button>
         <span style={{ marginLeft:'auto' }} />
+        <input id={fileInputId} type='file' accept='.csv,text/csv' style={{ display:'none' }} onChange={async (e)=>{
+          const f = e.target.files?.[0]
+          if (!f) return
+          const text = await f.text()
+          const res = await fetch('/api/import/volunteers', { method:'POST', headers:{ 'Content-Type': 'application/json' }, body: JSON.stringify({ csv: text }) })
+          if (!res.ok) { alert('Import failed'); return }
+          const data = await res.json()
+          alert(`Import complete. Created: ${data.created}, Updated: ${data.updated}, Skipped: ${data.skipped}${(data.errors?.length? `, Errors: ${data.errors.length}` : '')}`)
+          ;(e.target as HTMLInputElement).value = ''
+          await refresh()
+        }} />
+        <button onClick={()=>document.getElementById(fileInputId)?.click()}>Import CSV</button>
         <label>From <input type='date' value={exportFrom} onChange={e=>setExportFrom(e.target.value)} /></label>
         <label>To <input type='date' value={exportTo} onChange={e=>setExportTo(e.target.value)} /></label>
         <button onClick={()=>{

@@ -18,6 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           prisma.availability.deleteMany({ where: { volunteerId: id } }),
           prisma.blackout.deleteMany({ where: { volunteerId: id } }),
           prisma.task.deleteMany({ where: { volunteerId: id } }),
+          prisma.contactLog.deleteMany({ where: { volunteerId: id } }),
         ])
         await prisma.volunteer.delete({ where: { id } })
         return res.status(200).json({ ok: true })
