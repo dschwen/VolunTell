@@ -543,39 +543,40 @@ function ContactRow({ item, onChanged }: { item: any; onChanged: ()=>void }) {
   })
   const [comments, setComments] = useState<string>(item.comments || '')
   return (
-    <tr style={{ borderBottom:'1px solid #f5f5f5' }}>
-      <td>
-        {!editing ? new Date(item.at).toLocaleString() : (
-          <input type='datetime-local' value={when} onChange={e=>setWhen(e.target.value)} />
-        )}
-      </td>
-      <td>
-        {!editing ? item.method : (
-          <select value={method} onChange={e=>setMethod(e.target.value)}>
-            <option value='phone'>phone</option>
-            <option value='email'>email</option>
-            <option value='other'>other</option>
-          </select>
-        )}
-      </td>
-      <td>
-        {!editing ? (item.comments || '—') : (
-          <input value={comments} onChange={e=>setComments(e.target.value)} />
-        )}
-      </td>
-      <td style={{ textAlign:'right', display:'flex', gap:6, justifyContent:'flex-end' }}>
-        {!editing ? (
-          <>
-            <button title='Edit' onClick={()=>setEditing(true)}>✏️</button>
-            <button title='Delete' onClick={async()=>{ if(!confirm('Delete this contact log?')) return; await fetch('/api/contacts/'+item.id,{ method:'DELETE' }); onChanged() }}>🗑️</button>
-          </>
-        ) : (
-          <>
-            <button title='Cancel' onClick={()=>{ setEditing(false); setMethod(item.method); setComments(item.comments||''); /* keep when as is */ }}>Cancel</button>
-            <button title='Save' onClick={async()=>{ await fetch('/api/contacts/'+item.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, comments, at: when ? new Date(when).toISOString() : undefined }) }); setEditing(false); onChanged() }}>Save</button>
-          </>
-        )}
-      </td>
-    </tr>
+    !editing ? (
+      <tr style={{ borderBottom:'1px solid #f5f5f5' }}>
+        <td>{new Date(item.at).toLocaleString()}</td>
+        <td>{item.method}</td>
+        <td>{item.comments || '—'}</td>
+        <td style={{ textAlign:'right', display:'flex', gap:6, justifyContent:'flex-end' }}>
+          <button title='Edit' onClick={()=>setEditing(true)}>✏️</button>
+          <button title='Delete' onClick={async()=>{ if(!confirm('Delete this contact log?')) return; await fetch('/api/contacts/'+item.id,{ method:'DELETE' }); onChanged() }}>🗑️</button>
+        </td>
+      </tr>
+    ) : (
+      <tr style={{ borderBottom:'1px solid #f5f5f5' }}>
+        <td colSpan={4}>
+          <div style={{ display:'grid', gap:8 }}>
+            <label>Method
+              <select value={method} onChange={e=>setMethod(e.target.value)}>
+                <option value='phone'>phone</option>
+                <option value='email'>email</option>
+                <option value='other'>other</option>
+              </select>
+            </label>
+            <label>Date/Time
+              <input type='datetime-local' value={when} onChange={e=>setWhen(e.target.value)} />
+            </label>
+            <label>Comments
+              <textarea rows={3} style={{ width:'100%' }} value={comments} onChange={e=>setComments(e.target.value)} />
+            </label>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+              <button title='Cancel' onClick={()=>{ setEditing(false); setMethod(item.method); setComments(item.comments||''); /* keep when as is */ }}>Cancel</button>
+              <button title='Save' onClick={async()=>{ await fetch('/api/contacts/'+item.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, comments, at: when ? new Date(when).toISOString() : undefined }) }); setEditing(false); onChanged() }}>Save</button>
+            </div>
+          </div>
+        </td>
+      </tr>
+    )
   )
 }
