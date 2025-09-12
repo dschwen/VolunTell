@@ -327,8 +327,7 @@ export default function VolunteersPage() {
               <td>{v.phone}</td>
               <td>{(v.skills||[]).join(', ')}</td>
               <td>
-                {lastContactOf(v)}{' '}
-                <button onClick={()=>openHistory(v)} title='View contact history'>🕘</button>
+                <span onClick={()=>openHistory(v)} title='View contact history' style={{ cursor:'pointer', textDecoration:'underline dotted' }}>{lastContactOf(v)}</span>
               </td>
               <td>{v.isActive ? 'Active' : 'Inactive'}</td>
               <td style={{ textAlign: 'right', display:'flex', gap:6, justifyContent:'flex-end' }}>
@@ -466,16 +465,12 @@ export default function VolunteersPage() {
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:640, maxWidth:'90vw', maxHeight:'80vh', overflow:'auto' }}>
             <h3>Contact history — {historyModal.volunteer?.name}</h3>
             <table width='100%' cellPadding={6} style={{ borderCollapse:'collapse', marginTop:8 }}>
-              <thead><tr style={{ textAlign:'left', borderBottom:'1px solid #eee' }}><th>Date</th><th>Method</th><th>Comments</th></tr></thead>
+              <thead><tr style={{ textAlign:'left', borderBottom:'1px solid #eee' }}><th>Date</th><th>Method</th><th>Comments</th><th></th></tr></thead>
               <tbody>
                 {historyModal.items.map((i:any)=>(
-                  <tr key={i.id} style={{ borderBottom:'1px solid #f5f5f5' }}>
-                    <td>{new Date(i.at).toLocaleString()}</td>
-                    <td>{i.method}</td>
-                    <td>{i.comments || '—'}</td>
-                  </tr>
+                  <ContactRow key={i.id} item={i} onChanged={async()=>{ const res = await fetch(`/api/volunteers/${historyModal.volunteer!.id}/contacts`); const data = await res.json(); setHistoryModal(h=>({ ...h, items: data.items || [] })) }} />
                 ))}
-                {!historyModal.items.length && (<tr><td colSpan={3} style={{ opacity:.7 }}>No contacts logged yet.</td></tr>)}
+                {!historyModal.items.length && (<tr><td colSpan={4} style={{ opacity:.7 }}>No contacts logged yet.</td></tr>)}
               </tbody>
             </table>
             <div style={{ display:'flex', justifyContent:'flex-end', marginTop:12 }}>
@@ -533,5 +528,54 @@ export default function VolunteersPage() {
         </div>
       )}
     </div>
+  )
+}
+
+function ContactRow({ item, onChanged }: { item: any; onChanged: ()=>void }) {
+  const [editing, setEditing] = useState(false)
+  const [method, setMethod] = useState<string>(item.method)
+  const [when, setWhen] = useState<string>(()=>{
+    try {
+      const d = new Date(item.at)
+      const pad=(n:number)=>String(n).padStart(2,'0')
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    } catch { return '' }
+  })
+  const [comments, setComments] = useState<string>(item.comments || '')
+  return (
+    <tr style={{ borderBottom:'1px solid #f5f5f5' }}>
+      <td>
+        {!editing ? new Date(item.at).toLocaleString() : (
+          <input type='datetime-local' value={when} onChange={e=>setWhen(e.target.value)} />
+        )}
+      </td>
+      <td>
+        {!editing ? item.method : (
+          <select value={method} onChange={e=>setMethod(e.target.value)}>
+            <option value='phone'>phone</option>
+            <option value='email'>email</option>
+            <option value='other'>other</option>
+          </select>
+        )}
+      </td>
+      <td>
+        {!editing ? (item.comments || '—') : (
+          <input value={comments} onChange={e=>setComments(e.target.value)} />
+        )}
+      </td>
+      <td style={{ textAlign:'right', display:'flex', gap:6, justifyContent:'flex-end' }}>
+        {!editing ? (
+          <>
+            <button title='Edit' onClick={()=>setEditing(true)}>✏️</button>
+            <button title='Delete' onClick={async()=>{ if(!confirm('Delete this contact log?')) return; await fetch('/api/contacts/'+item.id,{ method:'DELETE' }); onChanged() }}>🗑️</button>
+          </>
+        ) : (
+          <>
+            <button title='Cancel' onClick={()=>{ setEditing(false); setMethod(item.method); setComments(item.comments||''); /* keep when as is */ }}>Cancel</button>
+            <button title='Save' onClick={async()=>{ await fetch('/api/contacts/'+item.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, comments, at: when ? new Date(when).toISOString() : undefined }) }); setEditing(false); onChanged() }}>Save</button>
+          </>
+        )}
+      </td>
+    </tr>
   )
 }
