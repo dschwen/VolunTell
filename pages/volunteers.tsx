@@ -38,6 +38,24 @@ export default function VolunteersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [notesEdit, setNotesEdit] = useState<{ id: string; value: string } | null>(null)
   const [hideInactive, setHideInactive] = useState<boolean>(false)
+  // Persist hideInactive in localStorage
+  useEffect(() => {
+    try { const v = localStorage.getItem('hideInactive'); if (v != null) setHideInactive(v === 'true') } catch {}
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem('hideInactive', hideInactive ? 'true' : 'false') } catch {}
+  }, [hideInactive])
+  // Persist sort + contactDays
+  useEffect(() => {
+    try {
+      const sb = localStorage.getItem('vols.sortBy'); if (sb) setSortBy(sb as any)
+      const sd = localStorage.getItem('vols.sortDir'); if (sd === 'asc' || sd === 'desc') setSortDir(sd as any)
+      const cd = localStorage.getItem('vols.contactDays'); if (cd != null) setContactDays(cd)
+    } catch {}
+  }, [])
+  useEffect(() => { try { localStorage.setItem('vols.sortBy', sortBy) } catch {} }, [sortBy])
+  useEffect(() => { try { localStorage.setItem('vols.sortDir', sortDir) } catch {} }, [sortDir])
+  useEffect(() => { try { localStorage.setItem('vols.contactDays', contactDays) } catch {} }, [contactDays])
   const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
   useEffect(() => { refresh() }, [])
@@ -177,7 +195,7 @@ export default function VolunteersPage() {
         {selected.size > 0 && (
           <div style={{ display:'flex', gap:6, alignItems:'center' }}>
             <strong>{selected.size} selected</strong>
-            <button onClick={()=>{ const now=new Date(); const pad=(n:number)=>String(n).padStart(2,'0'); const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`; setContactModal({ open:true, ids: Array.from(selected), when: local, method:'phone', comments:'' }) }}>Log contact</button>
+            <button onClick={()=>{ const now=new Date(); const pad=(n:number)=>String(n).padStart(2,'0'); const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`; setContactModal({ open:true, ids: Array.from(selected), when: local, method:'phone', comments:'' }) }}>📞 Log contact</button>
             <button onClick={async()=>{
               setAssignModal({ open:true, events: [], loading: true })
               try {
@@ -189,7 +207,7 @@ export default function VolunteersPage() {
               } catch (e) {
                 setAssignModal({ open:true, events: [], loading: false, error: 'Failed to load events' })
               }
-            }}>Assign to shift</button>
+            }}>📌 Assign to shift</button>
             <button onClick={async()=>{
               let ok=0
               for (const id of selected) {
@@ -198,7 +216,7 @@ export default function VolunteersPage() {
               }
               alert(`Flagged ${ok} for follow-up`)
               setSelected(new Set()); await refresh()
-            }}>Flag follow-up</button>
+            }}>⭐ Flag follow-up</button>
             <button onClick={async()=>{
               let closed=0
               for (const id of selected) {
@@ -210,9 +228,9 @@ export default function VolunteersPage() {
               }
               alert(`Cleared follow-up on ${closed} volunteers`)
               setSelected(new Set()); await refresh()
-            }}>Clear follow-up</button>
-            <button onClick={async()=>{ if(!confirm(`Deactivate ${selected.size} volunteers?`)) return; for (const id of selected) { await fetch('/api/volunteers/'+id,{ method:'DELETE' }) } setSelected(new Set()); await refresh() }}>Deactivate</button>
-            <button onClick={async()=>{ if(!confirm(`Permanently delete ${selected.size} volunteers? This removes related availability, blackouts, signups, attendance, and contacts.`)) return; for (const id of selected) { await fetch('/api/volunteers/'+id+'?hard=true',{ method:'DELETE' }) } setSelected(new Set()); await refresh() }}>Delete</button>
+            }}>☆ Clear follow-up</button>
+            <button onClick={async()=>{ if(!confirm(`Deactivate ${selected.size} volunteers?`)) return; for (const id of selected) { await fetch('/api/volunteers/'+id,{ method:'DELETE' }) } setSelected(new Set()); await refresh() }}>🚫 Deactivate</button>
+            <button onClick={async()=>{ if(!confirm(`Permanently delete ${selected.size} volunteers? This removes related availability, blackouts, signups, attendance, and contacts.`)) return; for (const id of selected) { await fetch('/api/volunteers/'+id+'?hard=true',{ method:'DELETE' }) } setSelected(new Set()); await refresh() }}>🗑️ Delete</button>
           </div>
         )}
         <input id={fileInputId} type='file' accept='.csv,text/csv' style={{ display:'none' }} onChange={async (e)=>{
@@ -315,7 +333,7 @@ export default function VolunteersPage() {
               <td>{v.isActive ? 'Active' : 'Inactive'}</td>
               <td style={{ textAlign: 'right', display:'flex', gap:6, justifyContent:'flex-end' }}>
                 <button onClick={() => openEdit(v)} title='Edit volunteer'>✏️</button>
-                <button onClick={() => openContact(v)} title='Log contact'>📝</button>
+                <button onClick={() => openContact(v)} title='Log contact'>📞</button>
                 {v.isActive ? (
                   <>
                     <button onClick={() => remove(v)} title='Deactivate'>🚫</button>
