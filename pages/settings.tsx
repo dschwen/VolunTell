@@ -40,6 +40,17 @@ export default function SettingsPage() {
     await fetch('/api/skills/'+id, { method:'DELETE' })
     refresh()
   }
+  async function renameSkill(id: string, current: string) {
+    const name = prompt('Rename skill', current)?.trim()
+    if (!name || name === current) return
+    const res = await fetch('/api/skills/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name }) })
+    if (!res.ok) {
+      const data = await res.json().catch(()=>({}))
+      alert(data?.error === 'duplicate' ? 'A skill with that name already exists.' : 'Failed to rename skill')
+      return
+    }
+    refresh()
+  }
   async function saveDefaultHours() {
     await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ defaultShiftHours: String(defaultHours) }) })
     alert('Saved')
@@ -89,8 +100,10 @@ export default function SettingsPage() {
           </div>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             {skills.map(s => (
-              <span key={s.id} style={{ padding:'4px 8px', border:'1px solid #ddd', borderRadius:12 }}>
-                {s.name} <button onClick={()=>removeSkill(s.id)}>×</button>
+              <span key={s.id} style={{ padding:'4px 8px', border:'1px solid #ddd', borderRadius:12, display:'inline-flex', alignItems:'center', gap:6 }}>
+                {s.name}
+                <button title='Rename' onClick={()=>renameSkill(s.id, s.name)}>✎</button>
+                <button title='Delete' onClick={()=>removeSkill(s.id)}>×</button>
               </span>
             ))}
           </div>

@@ -30,8 +30,10 @@ export default function VolunteersPage() {
   const [blocks, setBlocks] = useState<any[]>([])
   const [newAvail, setNewAvail] = useState({ weekday: 1, startTime: '08:00', endTime: '17:00' })
   const [newBlock, setNewBlock] = useState({ weekday: 0 as any, date: '', startTime: '00:00', endTime: '23:59', notes: '' })
-  const [contactModal, setContactModal] = useState<{ open: boolean; volunteer?: Volunteer; when: string; method: 'phone'|'email'|'other'; comments: string }>({ open:false, when:'', method:'phone', comments:'' })
+  const [contactModal, setContactModal] = useState<{ open: boolean; volunteer?: Volunteer; ids?: string[]; when: string; method: 'phone'|'email'|'other'; comments: string }>({ open:false, when:'', method:'phone', comments:'' })
   const [historyModal, setHistoryModal] = useState<{ open: boolean; volunteer?: Volunteer; items: any[] }>({ open:false, items: [] })
+  const [assignModal, setAssignModal] = useState<{ open: boolean; events: any[]; eventId?: string; shiftId?: string; role?: string; loading: boolean; error?: string }>({ open:false, events: [], loading: false })
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
   useEffect(() => { refresh() }, [])
@@ -164,16 +166,26 @@ export default function VolunteersPage() {
         <button onClick={refresh} disabled={loading}>Refresh</button>
         <button onClick={openAdd}>Add Volunteer</button>
         <span style={{ marginLeft:'auto' }} />
-        <label>Sort by
-          <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)} style={{ marginLeft:6 }}>
-            <option value='name'>Name</option>
-            <option value='email'>Email</option>
-            <option value='phone'>Phone</option>
-            <option value='lastContact'>Last contact</option>
-            <option value='status'>Status</option>
-          </select>
-        </label>
-        <button onClick={()=>setSortDir(d=>d==='asc'?'desc':'asc')} title={`Direction: ${sortDir}`}>{sortDir==='asc'?'Asc':'Desc'}</button>
+        {selected.size > 0 && (
+          <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+            <strong>{selected.size} selected</strong>
+            <button onClick={()=>{ const now=new Date(); const pad=(n:number)=>String(n).padStart(2,'0'); const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`; setContactModal({ open:true, ids: Array.from(selected), when: local, method:'phone', comments:'' }) }}>Log contact</button>
+            <button onClick={async()=>{
+              setAssignModal({ open:true, events: [], loading: true })
+              try {
+                const from = new Date().toISOString()
+                const to = new Date(Date.now()+30*24*3600*1000).toISOString()
+                const res = await fetch(`/api/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+                const data = await res.json()
+                setAssignModal({ open:true, events: data.events||[], loading: false })
+              } catch (e) {
+                setAssignModal({ open:true, events: [], loading: false, error: 'Failed to load events' })
+              }
+            }}>Assign to shift</button>
+            <button onClick={async()=>{ if(!confirm(`Deactivate ${selected.size} volunteers?`)) return; for (const id of selected) { await fetch('/api/volunteers/'+id,{ method:'DELETE' }) } setSelected(new Set()); await refresh() }}>Deactivate</button>
+            <button onClick={async()=>{ if(!confirm(`Permanently delete ${selected.size} volunteers? This removes related availability, blackouts, signups, attendance, and contacts.`)) return; for (const id of selected) { await fetch('/api/volunteers/'+id+'?hard=true',{ method:'DELETE' }) } setSelected(new Set()); await refresh() }}>Delete</button>
+          </div>
+        )}
         <input id={fileInputId} type='file' accept='.csv,text/csv' style={{ display:'none' }} onChange={async (e)=>{
           const f = e.target.files?.[0]
           if (!f) return
@@ -198,12 +210,29 @@ export default function VolunteersPage() {
       <table width="100%" cellPadding={6} style={{ borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ textAlign: 'left', borderBottom: '1px solid #eee' }}>
-            <th>Name</th><th>Email</th><th>Phone</th><th>Skills</th><th>Last contact</th><th>Status</th><th></th>
+            <th><input type='checkbox' checked={selected.size>0 && filtered.every(v=>selected.has(v.id))} onChange={e=>{ if(e.target.checked){ setSelected(new Set(filtered.map(v=>v.id))) } else { setSelected(new Set()) } }} /></th>
+            {['name','email','phone','skills','lastContact','status'].map((key)=>{
+              const labelMap: any = { name:'Name', email:'Email', phone:'Phone', skills:'Skills', lastContact:'Last contact', status:'Status' }
+              const k = key as 'name'|'email'|'phone'|'lastContact'|'status'| 'skills'
+              const sortable = k !== 'skills'
+              const isActive = sortable && sortBy === (k === 'lastContact' ? 'lastContact' : k as any)
+              const arrow = isActive ? (sortDir==='asc'?'▲':'▼') : ''
+              return (
+                <th key={k} style={{ cursor: sortable ? 'pointer' : 'default', userSelect:'none' }} onClick={()=>{
+                  if (!sortable) return
+                  const target = (k === 'lastContact') ? 'lastContact' : (k as any)
+                  if (sortBy === target) setSortDir(d=>d==='asc'?'desc':'asc')
+                  else { setSortBy(target as any); setSortDir('asc') }
+                }}>{labelMap[k]} {arrow}</th>
+              )
+            })}
+            <th></th>
           </tr>
         </thead>
         <tbody>
           {filtered.map(v => (
             <tr key={v.id} style={{ borderBottom: '1px solid #f2f2f2' }}>
+              <td><input type='checkbox' checked={selected.has(v.id)} onChange={e=>{ setSelected(prev=>{ const next=new Set(prev); if(e.target.checked) next.add(v.id); else next.delete(v.id); return next }) }} /></td>
               <td>{v.name}</td>
               <td>{v.email}</td>
               <td>{v.phone}</td>
@@ -308,7 +337,7 @@ export default function VolunteersPage() {
       {contactModal.open && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.35)', display:'grid', placeItems:'center', zIndex:3000 }}>
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:520, maxWidth:'90vw' }}>
-            <h3>Log contact — {contactModal.volunteer?.name}</h3>
+            <h3>Log contact — {contactModal.volunteer ? contactModal.volunteer.name : `${contactModal.ids?.length||0} selected`}</h3>
             <div style={{ display:'grid', gap:8, marginTop:8 }}>
               <label>Method
                 <select value={contactModal.method} onChange={e=>setContactModal(c=>({ ...c, method: e.target.value as any }))}>
@@ -324,7 +353,19 @@ export default function VolunteersPage() {
             </div>
             <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
               <button onClick={()=>setContactModal({ open:false, when:'', method:'phone', comments:'' })}>Cancel</button>
-              <button onClick={submitContact}>Save</button>
+              <button onClick={async()=>{
+                const body = { method: contactModal.method, at: new Date(contactModal.when).toISOString(), comments: contactModal.comments || undefined }
+                if (contactModal.volunteer) {
+                  await fetch(`/api/volunteers/${contactModal.volunteer.id}/contacts`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+                } else if (contactModal.ids?.length) {
+                  for (const id of contactModal.ids) {
+                    await fetch(`/api/volunteers/${id}/contacts`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+                  }
+                }
+                setContactModal({ open:false, when:'', method:'phone', comments:'' })
+                setSelected(new Set())
+                await refresh()
+              }}>Save</button>
             </div>
           </div>
         </div>
@@ -349,6 +390,54 @@ export default function VolunteersPage() {
             </table>
             <div style={{ display:'flex', justifyContent:'flex-end', marginTop:12 }}>
               <button onClick={()=>setHistoryModal({ open:false, items: [] })}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {assignModal.open && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.35)', display:'grid', placeItems:'center', zIndex:3000 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:560, maxWidth:'90vw' }}>
+            <h3>Assign to shift</h3>
+            <div style={{ display:'grid', gap:8, marginTop:8 }}>
+              <label>Event
+                <select value={assignModal.eventId || ''} onChange={e=>setAssignModal(m=>({ ...m, eventId: e.target.value || undefined, shiftId: undefined, role: undefined }))}>
+                  <option value=''>Select…</option>
+                  {(assignModal.events||[]).map((ev:any)=>(<option key={ev.id} value={ev.id}>{new Date(ev.start).toLocaleDateString()} — {ev.title}</option>))}
+                </select>
+              </label>
+              <label>Shift
+                <select value={assignModal.shiftId || ''} onChange={e=>setAssignModal(m=>({ ...m, shiftId: e.target.value || undefined, role: undefined }))} disabled={!assignModal.eventId}>
+                  <option value=''>Select…</option>
+                  {assignModal.eventId && (assignModal.events.find((ev:any)=>ev.id===assignModal.eventId)?.shifts||[]).map((sh:any)=>(
+                    <option key={sh.id} value={sh.id}>{new Date(sh.start).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}–{new Date(sh.end).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</option>
+                  ))}
+                </select>
+              </label>
+              <label>Role (optional)
+                <select value={assignModal.role || ''} onChange={e=>setAssignModal(m=>({ ...m, role: e.target.value || undefined }))} disabled={!assignModal.shiftId}>
+                  <option value=''>—</option>
+                  {assignModal.shiftId && (() => {
+                    const ev = assignModal.events.find((e:any)=>e.id===assignModal.eventId)
+                    const sh = ev?.shifts?.find((s:any)=>s.id===assignModal.shiftId)
+                    const req = Array.from(new Set((sh?.requirements||[]).map((r:any)=>r.skill)))
+                    return req.map((s:any)=>(<option key={s} value={s}>{s}</option>))
+                  })()}
+                </select>
+              </label>
+            </div>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
+              <button onClick={()=>setAssignModal({ open:false, events: [], loading:false })}>Cancel</button>
+              <button disabled={!assignModal.shiftId} onClick={async()=>{
+                if (!assignModal.shiftId) return
+                let ok = 0, failed = 0
+                for (const id of selected) {
+                  const res = await fetch('/api/shifts/'+assignModal.shiftId+'/assign', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId: id, role: assignModal.role }) })
+                  if (res.ok) ok++; else failed++
+                }
+                alert(`Assigned: ${ok}, Failed: ${failed}`)
+                setAssignModal({ open:false, events: [], loading:false })
+                setSelected(new Set())
+              }}>Assign</button>
             </div>
           </div>
         </div>
