@@ -7,7 +7,8 @@ const tabs = [
   { href: '/events', label: 'Events' },
   { href: '/projects', label: 'Projects' },
   { href: '/volunteers', label: 'Volunteers' },
-  { href: '/settings', label: 'Settings' }
+  { href: '/tasks', label: 'Tasks' },
+  { href: '/settings', label: 'Settings' },
 ]
 
 export default function Layout({ children }: { children: ReactNode }) {
