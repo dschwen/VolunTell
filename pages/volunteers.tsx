@@ -8,6 +8,7 @@ type Volunteer = {
   phone?: string
   skills: string[]
   isActive: boolean
+  notes?: string
   contactLogs?: { id: string; at: string; method: string; comments?: string }[]
 }
 
@@ -23,7 +24,7 @@ export default function VolunteersPage() {
   const [sortBy, setSortBy] = useState<'name'|'email'|'phone'|'lastContact'|'status'>('name')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
   const [modal, setModal] = useState<{ open: boolean; editing?: Volunteer }>(() => ({ open: false }))
-  const [form, setForm] = useState<{ name: string; email: string; phone: string; skills: string[] }>({ name:'', email:'', phone:'', skills: [] })
+  const [form, setForm] = useState<{ name: string; email: string; phone: string; skills: string[]; notes: string }>({ name:'', email:'', phone:'', skills: [], notes: '' })
   const [allSkills, setAllSkills] = useState<{ id:string; name:string }[]>([])
   const [skillInput, setSkillInput] = useState('')
   const [avail, setAvail] = useState<any[]>([])
@@ -34,6 +35,8 @@ export default function VolunteersPage() {
   const [historyModal, setHistoryModal] = useState<{ open: boolean; volunteer?: Volunteer; items: any[] }>({ open:false, items: [] })
   const [assignModal, setAssignModal] = useState<{ open: boolean; events: any[]; eventId?: string; shiftId?: string; role?: string; loading: boolean; error?: string }>({ open:false, events: [], loading: false })
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [notesEdit, setNotesEdit] = useState<{ id: string; value: string } | null>(null)
+  const [hideInactive, setHideInactive] = useState<boolean>(false)
   const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
   useEffect(() => { refresh() }, [])
@@ -53,18 +56,18 @@ export default function VolunteersPage() {
   }
 
   function openAdd() {
-    setForm({ name: '', email: '', phone: '', skills: [] })
+    setForm({ name: '', email: '', phone: '', skills: [], notes: '' })
     setModal({ open: true })
   }
   function openEdit(v: Volunteer) {
-    setForm({ name: v.name, email: v.email || '', phone: v.phone || '', skills: v.skills || [] })
+    setForm({ name: v.name, email: v.email || '', phone: v.phone || '', skills: v.skills || [], notes: v.notes || '' })
     setModal({ open: true, editing: v })
     // fetch availability and blackouts
     fetch(`/api/volunteers/${v.id}/availability`).then(r=>r.json()).then(d=>setAvail(d.items||[]))
     fetch(`/api/volunteers/${v.id}/blackouts`).then(r=>r.json()).then(d=>setBlocks(d.items||[]))
   }
   async function submit() {
-    const payload = { ...form, skills: Array.from(new Set((form.skills||[]).map(s=>s.trim()).filter(Boolean))) }
+    const payload = { ...form, skills: Array.from(new Set((form.skills||[]).map(s=>s.trim()).filter(Boolean))), notes: form.notes?.trim() || undefined }
     if (!modal.editing) {
       await fetch('/api/volunteers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     } else {
@@ -99,6 +102,7 @@ export default function VolunteersPage() {
         const last = v.contactLogs?.[0]?.at ? new Date(v.contactLogs![0]!.at).getTime() : null
         if (last == null || last < cutoff) return false
       }
+      if (hideInactive && !v.isActive) return false
       return true
     })
     const dir = sortDir === 'asc' ? 1 : -1
@@ -129,7 +133,7 @@ export default function VolunteersPage() {
         }
       }
     })
-  }, [vols, q, skill, contactDays, sortBy, sortDir])
+  }, [vols, q, skill, contactDays, sortBy, sortDir, hideInactive])
   function lastContactOf(v: Volunteer): string {
     const at = v.contactLogs?.[0]?.at
     if (!at) return '—'
@@ -166,6 +170,9 @@ export default function VolunteersPage() {
         <button onClick={refresh} disabled={loading}>Refresh</button>
         <button onClick={openAdd}>Add Volunteer</button>
         <span style={{ marginLeft:'auto' }} />
+        <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <input type='checkbox' checked={hideInactive} onChange={e=>setHideInactive(e.target.checked)} /> Hide inactive
+        </label>
         {selected.size > 0 && (
           <div style={{ display:'flex', gap:6, alignItems:'center' }}>
             <strong>{selected.size} selected</strong>
@@ -233,7 +240,36 @@ export default function VolunteersPage() {
           {filtered.map(v => (
             <tr key={v.id} style={{ borderBottom: '1px solid #f2f2f2' }}>
               <td><input type='checkbox' checked={selected.has(v.id)} onChange={e=>{ setSelected(prev=>{ const next=new Set(prev); if(e.target.checked) next.add(v.id); else next.delete(v.id); return next }) }} /></td>
-              <td>{v.name}</td>
+              <td>
+                <div>{v.name}</div>
+                {notesEdit?.id === v.id ? (
+                  <div style={{ marginTop:4 }} onClick={e=>e.stopPropagation()}>
+                    <textarea rows={2} style={{ width:'100%' }} value={notesEdit.value}
+                      onKeyDown={async (e)=>{
+                        if (e.key === 'Escape') { e.preventDefault(); setNotesEdit(null); return }
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                          e.preventDefault()
+                          const body={ notes: (notesEdit.value||'').trim() || null }
+                          await fetch('/api/volunteers/'+v.id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+                          setNotesEdit(null)
+                          await refresh()
+                        }
+                      }}
+                      onChange={e=>setNotesEdit(ne=>ne?{...ne, value:e.target.value}:ne)} />
+                    <div style={{ display:'flex', gap:6, marginTop:4 }}>
+                      <button onClick={async()=>{ const body={ notes: (notesEdit.value||'').trim() || null }; await fetch('/api/volunteers/'+v.id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); setNotesEdit(null); await refresh() }}>Save</button>
+                      <button onClick={()=>setNotesEdit(null)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    title='Click to edit comment'
+                    onClick={()=>setNotesEdit({ id: v.id, value: v.notes || '' })}
+                    style={{ fontSize:12, color:'#6b7280', marginTop:2, cursor:'text' }}>
+                    {v.notes && v.notes.trim() ? v.notes : <span style={{ opacity:.6, fontStyle:'italic' }}>Add comment</span>}
+                  </div>
+                )}
+              </td>
               <td>{v.email}</td>
               <td>{v.phone}</td>
               <td>{(v.skills||[]).join(', ')}</td>
@@ -267,6 +303,7 @@ export default function VolunteersPage() {
               <input placeholder="Name" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
               <input placeholder="Email" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} />
               <input placeholder="Phone" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} />
+              <textarea placeholder="Comments" value={form.notes} onChange={e=>setForm({...form, notes:e.target.value})} rows={3} />
               <TagMultiSelect
                 value={form.skills}
                 options={allSkills.map(s=>s.name)}
