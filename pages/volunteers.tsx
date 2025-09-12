@@ -310,19 +310,19 @@ export default function VolunteersPage() {
               <td>{(v.skills||[]).join(', ')}</td>
               <td>
                 {lastContactOf(v)}{' '}
-                <button onClick={()=>openHistory(v)} title='View contact history'>History</button>
+                <button onClick={()=>openHistory(v)} title='View contact history'>🕘</button>
               </td>
               <td>{v.isActive ? 'Active' : 'Inactive'}</td>
               <td style={{ textAlign: 'right', display:'flex', gap:6, justifyContent:'flex-end' }}>
-                <button onClick={() => openEdit(v)}>Edit</button>
-                <button onClick={() => openContact(v)}>Log contact</button>
+                <button onClick={() => openEdit(v)} title='Edit volunteer'>✏️</button>
+                <button onClick={() => openContact(v)} title='Log contact'>📝</button>
                 {v.isActive ? (
                   <>
-                    <button onClick={() => remove(v)}>Deactivate</button>
-                    <button onClick={() => hardDelete(v)}>Delete</button>
+                    <button onClick={() => remove(v)} title='Deactivate'>🚫</button>
+                    <button onClick={() => hardDelete(v)} title='Delete permanently'>🗑️</button>
                   </>
                 ) : (
-                  <button onClick={() => reactivate(v)}>Reactivate</button>
+                  <button onClick={() => reactivate(v)} title='Reactivate'>✅</button>
                 )}
               </td>
             </tr>
