@@ -19,6 +19,7 @@ export default function EventsPage() {
   const [volunteers, setVolunteers] = useState<{ id:string; name:string; skills:string[] }[]>([])
   const [allSkills, setAllSkills] = useState<string[]>([])
   const [trimByRequiredSkills, setTrimByRequiredSkills] = useState<boolean>(false)
+  const [cloneModal, setCloneModal] = useState<{ open: boolean; shiftId?: string; start: string; end: string; durationMs: number }>({ open:false, start:'', end:'', durationMs: 0 })
 
   useEffect(() => { refresh(); fetchProjects(); fetchVolunteers(); fetchSkills(); fetchSettings() }, [])
   useEffect(() => { refresh() }, [filters.projectId, filters.category])
@@ -133,6 +134,14 @@ export default function EventsPage() {
                     </div>
                     <div>
                       <button onClick={async()=>{ const start = prompt('New start (YYYY-MM-DDTHH:mm)', sh.start.slice(0,16)); if(!start) return; const end = prompt('New end (YYYY-MM-DDTHH:mm)', sh.end.slice(0,16)); if(!end) return; await fetch('/api/shifts/'+sh.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end).toISOString() }) }); await refresh() }}>Edit</button>{' '}
+                      <button onClick={()=>{
+                        const startIso = sh.start
+                        const endIso = sh.end
+                        const start = sh.start.slice(0,16)
+                        const end = sh.end.slice(0,16)
+                        const durationMs = new Date(endIso).getTime() - new Date(startIso).getTime()
+                        setCloneModal({ open:true, shiftId: sh.id, start, end, durationMs })
+                      }}>Clone</button>{' '}
                       <button onClick={async()=>{ if(!confirm('Delete this shift?')) return; await fetch('/api/shifts/'+sh.id,{ method:'DELETE' }); await refresh() }}>Delete</button>
                     </div>
                   </div>
@@ -189,6 +198,47 @@ export default function EventsPage() {
             <div style={{ display:'flex', gap:8, marginTop:12, justifyContent:'flex-end' }}>
               <button onClick={() => setModal({ open:false })}>Cancel</button>
               <button onClick={submit}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cloneModal.open && cloneModal.shiftId && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.35)', display:'grid', placeItems:'center', zIndex:3000 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:520, maxWidth:'90vw' }}>
+            <h3>Clone Shift</h3>
+            <div style={{ display:'grid', gap:8, marginTop:8 }}>
+              <label>Start
+                <input type='datetime-local' value={cloneModal.start}
+                  onChange={e=>{
+                    const start = e.target.value
+                    let end = cloneModal.end
+                    try {
+                      const dt = new Date(start)
+                      if (!Number.isNaN(dt.getTime())) {
+                        const en = new Date(dt.getTime() + cloneModal.durationMs)
+                        const pad=(n:number)=>String(n).padStart(2,'0')
+                        const toLocal=(d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                        end = toLocal(en)
+                      }
+                    } catch {}
+                    setCloneModal(m=>({ ...m, start, end }))
+                  }} />
+              </label>
+              <label>End
+                <input type='datetime-local' value={cloneModal.end} onChange={e=>setCloneModal(m=>({ ...m, end: e.target.value }))} />
+              </label>
+            </div>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
+              <button onClick={()=>setCloneModal({ open:false, start:'', end:'', durationMs: 0 })}>Cancel</button>
+              <button onClick={async()=>{
+                if (!cloneModal.shiftId) return
+                const startIso = new Date(cloneModal.start).toISOString()
+                const endIso = new Date(cloneModal.end).toISOString()
+                await fetch('/api/shifts/'+cloneModal.shiftId+'/clone',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start: startIso, end: endIso }) })
+                setCloneModal({ open:false, start:'', end:'', durationMs: 0 })
+                await refresh()
+              }}>Create</button>
             </div>
           </div>
         </div>

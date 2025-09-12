@@ -30,7 +30,7 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
   const [assignForm, setAssignForm] = useState<{ volunteerId: string; roleList: string[] }>({ volunteerId: '', roleList: [] })
   const [assignModal, setAssignModal] = useState<{ open: boolean; shiftId?: string; volunteerId?: string; options: string[]; selected: string[] }>({ open:false, options: [], selected: [] })
   const [toasts, setToasts] = useState<{ id: number; text: string }[]>([])
-  const [cloneModal, setCloneModal] = useState<{ open: boolean; start: string; end: string }>({ open:false, start:'', end:'' })
+  const [cloneModal, setCloneModal] = useState<{ open: boolean; start: string; end: string; durationMs: number }>({ open:false, start:'', end:'', durationMs: 0 })
 
   function showToast(text: string) {
     const id = Date.now() + Math.floor(Math.random()*1000)
@@ -294,9 +294,12 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
                 <button onClick={()=>{
                   const pad=(n:number)=>String(n).padStart(2,'0')
                   const toLocal=(d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-                  const startLocal = toLocal(new Date(drawer.details.start))
-                  const endLocal = toLocal(new Date(drawer.details.end))
-                  setCloneModal({ open:true, start: startLocal, end: endLocal })
+                  const s = new Date(drawer.details.start)
+                  const e = new Date(drawer.details.end)
+                  const startLocal = toLocal(s)
+                  const endLocal = toLocal(e)
+                  const durationMs = e.getTime() - s.getTime()
+                  setCloneModal({ open:true, start: startLocal, end: endLocal, durationMs })
                 }}>Clone shift</button>
                 <button onClick={async ()=>{ setDrawer({ open:false }); await onRefresh?.() }}>Close</button>
               </div>
@@ -355,15 +358,30 @@ export default function CalendarBoard({ initial, onPickTime, onCreate, onRefresh
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:520, maxWidth:'90vw', boxShadow:'0 10px 30px rgba(0,0,0,.2)' }}>
             <h3>Clone Shift</h3>
             <div style={{ display:'grid', gap:8, marginTop:8 }}>
-              <label>Start <input type='datetime-local' value={cloneModal.start} onChange={e=>setCloneModal(m=>({ ...m, start: e.target.value }))} /></label>
+              <label>Start
+                <input type='datetime-local' value={cloneModal.start} onChange={e=>{
+                  const start = e.target.value
+                  let end = cloneModal.end
+                  try {
+                    const dt = new Date(start)
+                    if (!Number.isNaN(dt.getTime())) {
+                      const en = new Date(dt.getTime() + cloneModal.durationMs)
+                      const pad=(n:number)=>String(n).padStart(2,'0')
+                      const toLocal=(d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                      end = toLocal(en)
+                    }
+                  } catch {}
+                  setCloneModal(m=>({ ...m, start, end }))
+                }} />
+              </label>
               <label>End <input type='datetime-local' value={cloneModal.end} onChange={e=>setCloneModal(m=>({ ...m, end: e.target.value }))} /></label>
             </div>
             <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
-              <button onClick={()=>setCloneModal({ open:false, start:'', end:'' })}>Cancel</button>
+              <button onClick={()=>setCloneModal({ open:false, start:'', end:'', durationMs: 0 })}>Cancel</button>
               <button onClick={async()=>{
-                const body = { start: cloneModal.start, end: cloneModal.end }
+                const body = { start: new Date(cloneModal.start).toISOString(), end: new Date(cloneModal.end).toISOString() }
                 await fetch('/api/shifts/' + drawer.shiftId + '/clone', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-                setCloneModal({ open:false, start:'', end:'' })
+                setCloneModal({ open:false, start:'', end:'', durationMs: 0 })
                 await onRefresh?.()
               }}>Create</button>
             </div>
