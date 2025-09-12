@@ -92,8 +92,20 @@ export default function CalendarPage() {
     </div>
   ), [filters, projects, defaultHours])
 
+  const Nav = () => (
+    <div style={{ display:'flex', gap:12, marginBottom:8, borderBottom:'1px solid #eee', paddingBottom:8 }}>
+      <a href='/calendar'><button>Calendar</button></a>
+      <a href='/events'><button>Events</button></a>
+      <a href='/projects'><button>Projects</button></a>
+      <a href='/volunteers'><button>Volunteers</button></a>
+      <a href='/settings'><button>Settings</button></a>
+      <a href='/tasks'><button>Tasks</button></a>
+    </div>
+  )
+
   return (
     <div>
+      <Nav />
       {Controls}
       <CalendarBoard projects={projects} defaultProjectId={filters.projectId} defaultShiftHours={defaultHours} initial={initial} onRefresh={refresh} onPickTime={(iso)=>{
         const d = new Date(iso)

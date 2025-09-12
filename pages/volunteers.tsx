@@ -10,6 +10,7 @@ type Volunteer = {
   isActive: boolean
   notes?: string
   contactLogs?: { id: string; at: string; method: string; comments?: string }[]
+  tasks?: { id: string }[]
 }
 
 export default function VolunteersPage() {
@@ -189,6 +190,27 @@ export default function VolunteersPage() {
                 setAssignModal({ open:true, events: [], loading: false, error: 'Failed to load events' })
               }
             }}>Assign to shift</button>
+            <button onClick={async()=>{
+              let ok=0
+              for (const id of selected) {
+                await fetch('/api/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId: id, type: 'followup', status: 'open' }) })
+                ok++
+              }
+              alert(`Flagged ${ok} for follow-up`)
+              setSelected(new Set()); await refresh()
+            }}>Flag follow-up</button>
+            <button onClick={async()=>{
+              let closed=0
+              for (const id of selected) {
+                const v = vols.find(x=>x.id===id)
+                if (v?.tasks?.length) {
+                  await fetch('/api/tasks/'+v.tasks[0].id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: 'done' }) })
+                  closed++
+                }
+              }
+              alert(`Cleared follow-up on ${closed} volunteers`)
+              setSelected(new Set()); await refresh()
+            }}>Clear follow-up</button>
             <button onClick={async()=>{ if(!confirm(`Deactivate ${selected.size} volunteers?`)) return; for (const id of selected) { await fetch('/api/volunteers/'+id,{ method:'DELETE' }) } setSelected(new Set()); await refresh() }}>Deactivate</button>
             <button onClick={async()=>{ if(!confirm(`Permanently delete ${selected.size} volunteers? This removes related availability, blackouts, signups, attendance, and contacts.`)) return; for (const id of selected) { await fetch('/api/volunteers/'+id+'?hard=true',{ method:'DELETE' }) } setSelected(new Set()); await refresh() }}>Delete</button>
           </div>
@@ -241,7 +263,20 @@ export default function VolunteersPage() {
             <tr key={v.id} style={{ borderBottom: '1px solid #f2f2f2' }}>
               <td><input type='checkbox' checked={selected.has(v.id)} onChange={e=>{ setSelected(prev=>{ const next=new Set(prev); if(e.target.checked) next.add(v.id); else next.delete(v.id); return next }) }} /></td>
               <td>
-                <div>{v.name}</div>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <button title={v.tasks?.length ? 'Clear follow-up flag' : 'Flag for follow-up'} onClick={async()=>{
+                    if (v.tasks?.length) {
+                      const tid = v.tasks[0].id
+                      await fetch('/api/tasks/'+tid, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: 'done' }) })
+                    } else {
+                      await fetch('/api/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId: v.id, type: 'followup', status: 'open' }) })
+                    }
+                    await refresh()
+                  }} style={{ border:'1px solid #ddd', borderRadius:4, width:22, height:22, display:'grid', placeItems:'center', background:'#fff' }}>
+                    <span style={{ color: v.tasks?.length ? '#f59e0b' : '#9ca3af' }}>{v.tasks?.length ? '★' : '☆'}</span>
+                  </button>
+                  <span>{v.name}</span>
+                </div>
                 {notesEdit?.id === v.id ? (
                   <div style={{ marginTop:4 }} onClick={e=>e.stopPropagation()}>
                     <textarea rows={2} style={{ width:'100%' }} value={notesEdit.value}

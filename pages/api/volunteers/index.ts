@@ -12,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // For availableForShift, we need availability + blackouts and conflict check
       // When checking availability for a shift, default to active volunteers only
       if (typeof availableForShift === 'string') where.isActive = true
-      const volunteers = await prisma.volunteer.findMany({ where, include: { availability: true, blackouts: true, family: true, contactLogs: { orderBy: { at: 'desc' }, take: 1 } } })
+      const volunteers = await prisma.volunteer.findMany({ where, include: { availability: true, blackouts: true, family: true, contactLogs: { orderBy: { at: 'desc' }, take: 1 }, tasks: { where: { status: 'open', type: 'followup' }, select: { id: true } } } })
       if (typeof availableForShift === 'string') {
         const shift = await prisma.shift.findUnique({ where: { id: availableForShift }, include: { signups: { where: { status: 'confirmed' } }, requirements: true } })
         if (!shift) return res.status(404).json({ error: 'shift_not_found' })
