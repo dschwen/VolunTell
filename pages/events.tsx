@@ -20,6 +20,7 @@ export default function EventsPage() {
   const [allSkills, setAllSkills] = useState<string[]>([])
   const [trimByRequiredSkills, setTrimByRequiredSkills] = useState<boolean>(false)
   const [cloneModal, setCloneModal] = useState<{ open: boolean; shiftId?: string; start: string; end: string; durationMs: number }>({ open:false, start:'', end:'', durationMs: 0 })
+  const [editShiftModal, setEditShiftModal] = useState<{ open: boolean; shiftId?: string; start: string; end: string; saving: boolean }>({ open:false, start:'', end:'', saving: false })
 
   useEffect(() => { refresh(); fetchProjects(); fetchVolunteers(); fetchSkills(); fetchSettings() }, [])
   useEffect(() => { refresh() }, [filters.projectId, filters.category])
@@ -133,7 +134,9 @@ export default function EventsPage() {
                       <span style={{ fontWeight:600 }}>Shift</span>: {new Date(sh.start).toLocaleString()} → {new Date(sh.end).toLocaleString()}
                     </div>
                     <div>
-                      <button onClick={async()=>{ const start = prompt('New start (YYYY-MM-DDTHH:mm)', sh.start.slice(0,16)); if(!start) return; const end = prompt('New end (YYYY-MM-DDTHH:mm)', sh.end.slice(0,16)); if(!end) return; await fetch('/api/shifts/'+sh.id,{ method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end).toISOString() }) }); await refresh() }}>Edit</button>{' '}
+                      <button onClick={() => {
+                        setEditShiftModal({ open: true, shiftId: sh.id, start: sh.start.slice(0, 16), end: sh.end.slice(0, 16), saving: false })
+                      }}>Edit time</button>{' '}
                       <button onClick={()=>{
                         const startIso = sh.start
                         const endIso = sh.end
@@ -198,6 +201,60 @@ export default function EventsPage() {
             <div style={{ display:'flex', gap:8, marginTop:12, justifyContent:'flex-end' }}>
               <button onClick={() => setModal({ open:false })}>Cancel</button>
               <button onClick={submit}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editShiftModal.open && editShiftModal.shiftId && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.35)', display:'grid', placeItems:'center', zIndex:3000 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:420, maxWidth:'90vw' }}>
+            <h3>Edit Shift</h3>
+            <div style={{ display:'grid', gap:8, marginTop:8 }}>
+              <label>Start
+                <input type='datetime-local' value={editShiftModal.start} onChange={e=>setEditShiftModal(m=>({ ...m, start: e.target.value }))} />
+              </label>
+              <label>End
+                <input type='datetime-local' value={editShiftModal.end} onChange={e=>setEditShiftModal(m=>({ ...m, end: e.target.value }))} />
+              </label>
+            </div>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
+              <button disabled={editShiftModal.saving} onClick={()=>setEditShiftModal({ open:false, shiftId: undefined, start:'', end:'', saving:false })}>Cancel</button>
+              <button
+                disabled={editShiftModal.saving || !editShiftModal.start || !editShiftModal.end}
+                onClick={async()=>{
+                  if (!editShiftModal.shiftId) return
+                  const start = new Date(editShiftModal.start)
+                  const end = new Date(editShiftModal.end)
+                  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+                    alert('Please provide valid start and end times.')
+                    return
+                  }
+                  if (end.getTime() <= start.getTime()) {
+                    alert('End time must be after start time.')
+                    return
+                  }
+                  try {
+                    setEditShiftModal(m=>({ ...m, saving:true }))
+                    const res = await fetch('/api/shifts/' + editShiftModal.shiftId, {
+                      method:'PATCH',
+                      headers:{'Content-Type':'application/json'},
+                      body: JSON.stringify({ start: start.toISOString(), end: end.toISOString() })
+                    })
+                    if (!res.ok) {
+                      alert('Failed to update shift')
+                      setEditShiftModal(m=>({ ...m, saving:false }))
+                      return
+                    }
+                    setEditShiftModal({ open:false, shiftId: undefined, start:'', end:'', saving:false })
+                    await refresh()
+                  } catch (e) {
+                    console.error(e)
+                    alert('Failed to update shift')
+                    setEditShiftModal(m=>({ ...m, saving:false }))
+                  }
+                }}
+              >Save</button>
             </div>
           </div>
         </div>
