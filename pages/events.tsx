@@ -169,7 +169,41 @@ export default function EventsPage() {
                     </div>
                   </div>
                   <div style={{ marginTop:8, display:'flex', gap:6, alignItems:'center' }}>
-                  <AssignForm trimByRequiredSkills={trimByRequiredSkills} shiftId={sh.id} initialVolunteers={volunteers} options={(sh.requirements?.map(r=>r.skill)||[])} onAssign={async (volunteerId, role) => { const res=await fetch('/api/shifts/'+sh.id+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ volunteerId, role }) }); if(!res.ok){ const d=await res.json().catch(()=>({})); alert(d?.error==='not_available'?'Volunteer not available for this shift': 'Assignment failed'); } await refresh() }} />
+                  <AssignForm
+                    trimByRequiredSkills={trimByRequiredSkills}
+                    shiftId={sh.id}
+                    initialVolunteers={volunteers}
+                    options={(sh.requirements?.map(r=>r.skill)||[])}
+                    onAssign={async (volunteerId, role, opts) => {
+                      const attempt = async (force?: boolean) => fetch('/api/shifts/' + sh.id + '/assign', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ volunteerId, role, ...(force ? { force: true } : {}) })
+                      })
+                      const formatError = (payload: any) => {
+                        if (payload?.error === 'not_available') return 'Volunteer not available for this shift'
+                        if (payload?.error === 'double_booked') {
+                          const title = payload?.conflict?.eventTitle ? ` (${payload.conflict.eventTitle})` : ''
+                          return `Volunteer already booked${title}`
+                        }
+                        return 'Assignment failed'
+                      }
+                      let res = await attempt()
+                      if (!res.ok) {
+                        const data = await res.json().catch(() => ({}))
+                        if (opts?.allowOverride && data?.error === 'not_available') {
+                          res = await attempt(true)
+                          if (!res.ok) {
+                            const data2 = await res.json().catch(() => ({}))
+                            throw new Error(formatError(data2))
+                          }
+                        } else {
+                          throw new Error(formatError(data))
+                        }
+                      }
+                      await refresh()
+                    }}
+                  />
                   </div>
                 </div>
               ))}
@@ -304,7 +338,7 @@ export default function EventsPage() {
   )
 }
 
-function AssignForm({ shiftId, initialVolunteers, options, onAssign, trimByRequiredSkills = false }: { shiftId: string; initialVolunteers: {id:string; name:string; skills:string[]}[]; options: string[]; onAssign: (volunteerId:string, role?:string)=>Promise<void>; trimByRequiredSkills?: boolean }) {
+function AssignForm({ shiftId, initialVolunteers, options, onAssign, trimByRequiredSkills = false }: { shiftId: string; initialVolunteers: {id:string; name:string; skills:string[]}[]; options: string[]; onAssign: (volunteerId:string, role?:string, opts?: { allowOverride?: boolean })=>Promise<void>; trimByRequiredSkills?: boolean }) {
   const [volunteerId, setVolunteerId] = useState('')
   const [roleList, setRoleList] = useState<string[]>([])
   const [onlyAvail, setOnlyAvail] = useState(true)
@@ -333,7 +367,7 @@ function AssignForm({ shiftId, initialVolunteers, options, onAssign, trimByRequi
       <label style={{ display:'flex', alignItems:'center', gap:4 }}>
         <input type='checkbox' checked={onlyAvail} onChange={e=>setOnlyAvail(e.target.checked)} /> Only available
       </label>
-      <button disabled={!volunteerId} onClick={async()=>{ try { await onAssign(volunteerId, role || undefined); } catch (e:any) { alert(e?.message || 'Failed to assign') } finally { setVolunteerId(''); setRoleList([]) } }}>Add</button>
+      <button disabled={!volunteerId} onClick={async()=>{ try { await onAssign(volunteerId, role || undefined, { allowOverride: !onlyAvail }); } catch (e:any) { alert(e?.message || 'Failed to assign') } finally { setVolunteerId(''); setRoleList([]) } }}>Add</button>
     </div>
   )
 }
