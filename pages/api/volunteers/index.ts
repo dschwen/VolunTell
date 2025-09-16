@@ -1,8 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../../lib/prisma'
 import { availableOnWeekday, availableForRange, availabilityDebugForRange, availableForRangeUTC } from '../../../lib/availability'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader('Cache-Control', 'no-store, max-age=0')
   try {
     if (req.method === 'GET') {
       const { skill, active, availableAt, availableForShift, requireSkills, debug } = req.query
@@ -88,9 +90,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     if (req.method === 'POST') {
       const { name, email, phone, skills, familyId, notes, isActive } = req.body || {}
-      if (!name) return res.status(400).json({ error: 'name required' })
-      const volunteer = await prisma.volunteer.create({ data: { name, email, phone, skills: skills || [], familyId, notes, isActive: isActive ?? true } })
-      return res.status(201).json({ volunteer })
+      const nameValue = typeof name === 'string' ? name.trim() : ''
+      if (!nameValue) return res.status(400).json({ error: 'name required' })
+      const emailValue = typeof email === 'string' && email.trim() ? email.trim() : null
+      const phoneValue = typeof phone === 'string' && phone.trim() ? phone.trim() : null
+      const notesValue = typeof notes === 'string' && notes.trim() ? notes.trim() : null
+      const skillsValue = Array.isArray(skills)
+        ? Array.from(new Set(skills.map((s: any) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean)))
+        : []
+      try {
+        const volunteer = await prisma.volunteer.create({
+          data: {
+            name: nameValue,
+            email: emailValue,
+            phone: phoneValue,
+            skills: skillsValue,
+            familyId: typeof familyId === 'string' && familyId.trim() ? familyId : null,
+            notes: notesValue,
+            isActive: isActive ?? true,
+          },
+        })
+        return res.status(201).json({ volunteer })
+      } catch (err: any) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && Array.isArray((err.meta as any)?.target) && (err.meta as any).target.includes('email')) {
+          return res.status(409).json({ error: 'email_exists' })
+        }
+        throw err
+      }
     }
     return res.status(405).end()
   } catch (e: any) {

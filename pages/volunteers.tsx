@@ -65,8 +65,8 @@ export default function VolunteersPage() {
     const params = new URLSearchParams()
     if (skill) params.set('skill', skill)
     const [vres, sres] = await Promise.all([
-      fetch('/api/volunteers?' + params.toString()),
-      fetch('/api/skills')
+      fetch('/api/volunteers?' + params.toString(), { cache: 'no-store' }),
+      fetch('/api/skills', { cache: 'no-store' })
     ])
     const vdata = await vres.json(); const sdata = await sres.json()
     setVols(vdata.volunteers || [])
@@ -86,11 +86,36 @@ export default function VolunteersPage() {
     fetch(`/api/volunteers/${v.id}/blackouts`).then(r=>r.json()).then(d=>setBlocks(d.items||[]))
   }
   async function submit() {
-    const payload = { ...form, skills: Array.from(new Set((form.skills||[]).map(s=>s.trim()).filter(Boolean))), notes: form.notes?.trim() || undefined }
+    const name = form.name.trim()
+    if (!name) {
+      alert('Name is required')
+      return
+    }
+    const email = form.email.trim()
+    const phone = form.phone.trim()
+    const payload: any = {
+      name,
+      email: email || null,
+      phone: phone || null,
+      notes: form.notes.trim() ? form.notes.trim() : null,
+      skills: Array.from(new Set((form.skills || []).map(s => s.trim()).filter(Boolean))),
+    }
+    const headers = { 'Content-Type': 'application/json' }
+    let res: Response
     if (!modal.editing) {
-      await fetch('/api/volunteers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      res = await fetch('/api/volunteers', { method: 'POST', headers, body: JSON.stringify(payload) })
     } else {
-      await fetch('/api/volunteers/' + modal.editing.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      res = await fetch('/api/volunteers/' + modal.editing.id, { method: 'PATCH', headers, body: JSON.stringify(payload) })
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      const message = data?.error === 'name required'
+        ? 'Name is required'
+        : data?.error === 'email_exists'
+        ? 'A volunteer with that email already exists.'
+        : 'Failed to save volunteer'
+      alert(message)
+      return
     }
     setModal({ open: false })
     await refresh()
@@ -119,7 +144,7 @@ export default function VolunteersPage() {
       if (skill && !(v.skills||[]).some(s => s.toLowerCase().includes(skill.toLowerCase()))) return false
       if (cutoff != null) {
         const last = v.contactLogs?.[0]?.at ? new Date(v.contactLogs![0]!.at).getTime() : null
-        if (last == null || last < cutoff) return false
+        if (last != null && last < cutoff) return false
       }
       if (hideInactive && !v.isActive) return false
       return true

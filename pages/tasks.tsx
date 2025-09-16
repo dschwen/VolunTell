@@ -97,7 +97,7 @@ export default function TasksPage() {
                 <td>
                   {item.deficits.map(d => (
                     <span key={d.skill} style={{ padding:'2px 6px', border:'1px solid #eee', borderRadius:12, marginRight:6, display:'inline-block' }}>
-                      {d.skill}: {d.have}/{d.minCount}
+                      {d.skill}: {d.have}/{d.need}
                     </span>
                   ))}
                 </td>
@@ -147,4 +147,3 @@ export default function TasksPage() {
     </div>
   )
 }
-
